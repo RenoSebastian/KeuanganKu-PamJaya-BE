@@ -13,8 +13,8 @@ import {
     PublicQuizSerializer,
     QuizSubmissionResultSerializer,
 } from '../serialization/quiz.serializer';
-// [NEW] Import Constants
-import { EDUCATION_CONSTANTS } from '..../../src/common/constants/education.constant';
+
+import { EDUCATION_CONSTANTS } from '../../../common/constants/education.constant';
 
 @Injectable()
 export class QuizEngineService {

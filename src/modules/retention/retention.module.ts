@@ -8,6 +8,8 @@ import { HistoricalRetentionStrategy } from './strategies/historical-retention.s
 import { SnapshotRetentionStrategy } from './strategies/snapshot-retention.strategy';
 import { RetentionStrategyFactory } from './strategies/retention-strategy.factory';
 import { ExportManagerService } from './services/export-manager.service';
+import { EducationCleanupStrategy } from './strategies/education-cleanup.strategy';
+
 
 @Module({
     imports: [PrismaModule],
@@ -17,7 +19,8 @@ import { ExportManagerService } from './services/export-manager.service';
         RetentionStrategyFactory,
         HistoricalRetentionStrategy,
         SnapshotRetentionStrategy,
-        ExportManagerService
+        ExportManagerService,
+        EducationCleanupStrategy,
     ],
     exports: [RetentionService],
 })

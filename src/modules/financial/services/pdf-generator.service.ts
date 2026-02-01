@@ -31,24 +31,28 @@ export class PdfGeneratorService implements OnModuleInit, OnModuleDestroy {
 
         this.logger.log('Initializing Puppeteer Browser...');
         try {
+            // [FIXED] Smart Executable Path Strategy
+            // 1. Cek ENV (Docker/Production).
+            // 2. Jika tidak ada, biarkan undefined (Local Dev) agar Puppeteer pakai bundled Chromium.
+            const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
+
             this.browser = await puppeteer.launch({
-		executablePath: '/usr/bin/google-chrome',
-                headless: true, // Mode tanpa UI (Wajib untuk server)
+                executablePath: executablePath,
+                headless: true,
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage', // Mencegah crash memori di Docker/Linux
-                    '--disable-gpu',           // Hemat resource GPU
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
                     '--no-first-run',
                     '--no-zygote',
-                    // [REMOVED] '--single-process', // JANGAN PAKAI INI DI WINDOWS -> Bikin Crash!
                     '--disable-extensions',
-                    '--disable-features=site-per-process', // Hemat RAM
+                    '--disable-features=site-per-process',
                 ],
             });
-            this.logger.log('Puppeteer Browser Ready.');
-        } catch (error) {
-            this.logger.error('Failed to launch Puppeteer:', error);
+            this.logger.log(`Puppeteer Browser Ready. Using path: ${executablePath || 'Bundled Chromium'}`);
+        } catch (error: any) {
+            this.logger.error(`Failed to launch Puppeteer: ${error.message}`, error.stack);
         }
     }
 
