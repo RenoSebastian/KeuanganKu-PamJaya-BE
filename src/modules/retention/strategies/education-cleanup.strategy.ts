@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { PruneExecutionDto } from '../dto/prune-execution.dto';
 import { EducationModuleStatus } from '@prisma/client';
+import { RetentionStrategy } from '../interfaces/retention-strategy.interface'; // [FIX] Import Interface
 
 @Injectable()
 export class EducationCleanupStrategy implements RetentionStrategy {
@@ -12,25 +13,24 @@ export class EducationCleanupStrategy implements RetentionStrategy {
     /**
      * Strategi Retensi Khusus Edukasi:
      * 1. PROTECT: UserEducationProgress (KPI Data) tidak boleh dihapus.
-     * 2. PRUNE: EducationModule yang statusnya ARCHIVED dan sudah > 2 tahun.
+     * 2. PRUNE: EducationModule yang statusnya ARCHIVED dan sudah > 2 tahun (sesuai cutoffDate).
      */
     async execute(cutoffDate: Date, isDryRun: boolean): Promise<PruneExecutionDto> {
         this.logger.log('Executing Education Retention Strategy...');
 
-        // 1. Whitelist Log
+        // 1. Whitelist Log (Data KPI Pegawai tidak disentuh)
         this.logger.log('[SAFEGUARD] UserEducationProgress table is WHITELISTED. Skipping user progress data pruning.');
 
-        // 2. Identify Stale Archived Modules (Example: > 2 years old archived content)
-        // Kita gunakan cutoffDate yang jauh lebih lama untuk modul (misal: cutoffDate - 365 hari lagi)
-        // Untuk demo ini, kita gunakan cutoffDate standar dari request.
-
+        // 2. Identify Stale Archived Modules
+        // Mencari modul yang statusnya ARCHIVED dan terakhir diupdate sebelum tanggal cutoff.
         const staleModules = await this.prisma.educationModule.count({
             where: {
                 status: EducationModuleStatus.ARCHIVED,
-                updatedAt: { lte: cutoffDate }, // Modul yang sudah lama di-archive
+                updatedAt: { lte: cutoffDate },
             },
         });
 
+        // --- Mode DRY RUN (Hanya Estimasi) ---
         if (isDryRun) {
             return {
                 strategyName: 'EducationCleanupStrategy',
@@ -38,16 +38,16 @@ export class EducationCleanupStrategy implements RetentionStrategy {
                 recordsToPrune: staleModules,
                 status: 'DRY_RUN',
                 executedAt: new Date(),
+                // Field validasi input dikosongkan karena ini output process
+                entityType: 'EDUCATION_CLEANUP',
+                cutoffDate: cutoffDate.toISOString(),
+                pruneToken: 'INTERNAL_PROCESS'
             };
         }
 
-        // Execute Delete
-        // Karena Cascade Delete aktif, ini juga akan menghapus Quiz, Questions, dan Options terkait.
-        // Tapi HATI-HATI: Ini juga akan menghapus UserEducationProgress terkait modul ini (via Cascade).
-        // KEPUTUSAN ARSITEKTUR:
-        // Kita hanya menghapus jika module benar-benar usang. Jika ingin retain progress, 
-        // kita seharusnya tidak menghapus modul, tapi hanya menandainya 'isDeleted'.
-        // Namun sesuai instruksi "Prune", kita lakukan hard delete untuk modul sampah.
+        // --- Mode EXECUTE (Penghapusan Fisik) ---
+        // Karena Cascade Delete aktif di Schema Prisma, menghapus EducationModule
+        // akan otomatis menghapus Quiz, Questions, dan Options terkait.
 
         let deletedCount = 0;
         if (staleModules > 0) {
@@ -66,6 +66,10 @@ export class EducationCleanupStrategy implements RetentionStrategy {
             recordsToPrune: deletedCount,
             status: 'SUCCESS',
             executedAt: new Date(),
+            // Isi field wajib DTO dengan nilai default/konteks saat ini
+            entityType: 'EDUCATION_CLEANUP',
+            cutoffDate: cutoffDate.toISOString(),
+            pruneToken: 'EXECUTED'
         };
     }
 }

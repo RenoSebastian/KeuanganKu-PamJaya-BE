@@ -1,8 +1,13 @@
-import { IsEnum, IsDateString, IsNotEmpty, IsString } from 'class-validator';
+import { IsEnum, IsDateString, IsNotEmpty, IsString, IsOptional } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { RetentionEntityType } from './export-query.dto';
+import { Expose } from 'class-transformer';
 
 export class PruneExecutionDto {
+    // =========================================================
+    // INPUT FIELDS (Validation for Controller Request)
+    // =========================================================
+
     @ApiProperty({
         enum: RetentionEntityType,
         description: 'Target data entitas yang akan dimusnahkan secara permanen.',
@@ -31,4 +36,34 @@ export class PruneExecutionDto {
         message: 'SECURITY BLOCKED: Token Prune wajib disertakan. Anda harus melakukan export data terlebih dahulu dan menyalin token dari file hasil export.'
     })
     pruneToken: string;
+
+    // =========================================================
+    // OUTPUT FIELDS (Result from Strategy Implementation)
+    // [FIX] Menambahkan properti ini untuk mengatasi Error TypeScript 2353
+    // =========================================================
+
+    @ApiProperty({ description: 'Nama strategi yang dieksekusi', required: false })
+    @Expose()
+    @IsOptional()
+    strategyName?: string;
+
+    @ApiProperty({ description: 'Tabel target penghapusan', required: false })
+    @Expose()
+    @IsOptional()
+    targetTable?: string;
+
+    @ApiProperty({ description: 'Jumlah data yang dihapus/akan dihapus', required: false })
+    @Expose()
+    @IsOptional()
+    recordsToPrune?: number;
+
+    @ApiProperty({ description: 'Status eksekusi', required: false })
+    @Expose()
+    @IsOptional()
+    status?: 'SUCCESS' | 'FAILED' | 'DRY_RUN';
+
+    @ApiProperty({ description: 'Waktu eksekusi', required: false })
+    @Expose()
+    @IsOptional()
+    executedAt?: Date;
 }

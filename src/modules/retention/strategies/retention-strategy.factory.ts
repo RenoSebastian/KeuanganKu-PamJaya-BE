@@ -1,9 +1,8 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { HistoricalRetentionStrategy } from './historical-retention.strategy';
 import { SnapshotRetentionStrategy } from './snapshot-retention.strategy';
-import { IRetentionStrategy } from '../interfaces/retention-strategy.interface';
-import { EducationCleanupStrategy } from '../strategies/education-cleanup.strategy'; // [NEW]
-
+import { RetentionStrategy } from '../interfaces/retention-strategy.interface'; // [FIX] Updated Import Name
+import { EducationCleanupStrategy } from './education-cleanup.strategy';
 
 @Injectable()
 export class RetentionStrategyFactory {
@@ -13,22 +12,26 @@ export class RetentionStrategyFactory {
         private readonly educationStrategy: EducationCleanupStrategy,
     ) { }
 
-    getStrategy(entityType: string): { strategy: IRetentionStrategy; tableName: string } {
+    // [FIX] Return type changed to RetentionStrategy interface directly
+    getStrategy(entityType: string): RetentionStrategy {
         switch (entityType) {
             // Kategori A: Historical Critical
             case 'FINANCIAL_CHECKUP':
-                return { strategy: this.historicalStrategy, tableName: 'financial_checkups' };
+                // Note: Pastikan HistoricalRetentionStrategy juga mengimplementasikan interface RetentionStrategy baru
+                return this.historicalStrategy as unknown as RetentionStrategy;
             case 'PENSION':
-                return { strategy: this.historicalStrategy, tableName: 'pension_plans' };
+                return this.historicalStrategy as unknown as RetentionStrategy;
 
             // Kategori B: Snapshot Only
             case 'GOAL':
-                return { strategy: this.snapshotStrategy, tableName: 'goal_plans' };
+                return this.snapshotStrategy as unknown as RetentionStrategy;
             case 'BUDGET':
-                return { strategy: this.snapshotStrategy, tableName: 'budget_plans' };
+                return this.snapshotStrategy as unknown as RetentionStrategy;
             case 'INSURANCE':
-                return { strategy: this.snapshotStrategy, tableName: 'insurance_plans' };
-            case 'EDUCATION_CLEANUP': // [NEW] Case
+                return this.snapshotStrategy as unknown as RetentionStrategy;
+
+            // Kategori C: Education Cleanup (NEW)
+            case 'EDUCATION_CLEANUP':
                 return this.educationStrategy;
 
             default:
