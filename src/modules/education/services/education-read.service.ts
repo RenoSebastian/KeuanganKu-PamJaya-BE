@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { EducationModuleStatus, EducationProgressStatus } from '@prisma/client';
+import { EducationModuleStatus, EducationProgressStatus, Prisma } from '@prisma/client';
 import {
     ModuleListResponse,
     ModuleDetailResponse,
@@ -13,12 +13,14 @@ export class EducationReadService {
     constructor(private readonly prisma: PrismaService) { }
 
     // --- 1. GET MODULES LIST (Optimized) ---
-
-    async findAllPublished(userId: string, query: { page: number; limit: number; categorySlug?: string }) {
+    async findAllPublished(
+        userId: string,
+        query: { page: number; limit: number; categorySlug?: string },
+    ) {
         const { page = 1, limit = 10, categorySlug } = query;
         const skip = (page - 1) * limit;
 
-        const whereCondition: any = {
+        const whereCondition: Prisma.EducationModuleWhereInput = {
             status: EducationModuleStatus.PUBLISHED,
             publishedAt: { lte: new Date() },
         };
@@ -27,21 +29,22 @@ export class EducationReadService {
             whereCondition.category = { slug: categorySlug };
         }
 
-        const modules = await this.prisma.educationModule.findMany({
-            where: whereCondition,
-            skip,
-            take: limit,
-            orderBy: { publishedAt: 'desc' },
-            include: {
-                category: true,
-                userProgress: {
-                    where: { userId },
-                    select: { status: true },
+        const [total, modules] = await this.prisma.$transaction([
+            this.prisma.educationModule.count({ where: whereCondition }),
+            this.prisma.educationModule.findMany({
+                where: whereCondition,
+                skip,
+                take: limit,
+                orderBy: { publishedAt: 'desc' },
+                include: {
+                    category: true,
+                    userProgress: {
+                        where: { userId },
+                        select: { status: true },
+                    },
                 },
-            },
-        });
-
-        const total = await this.prisma.educationModule.count({ where: whereCondition });
+            }),
+        ]);
 
         const data = modules.map((m) => {
             const progress = m.userProgress[0];
@@ -59,23 +62,19 @@ export class EducationReadService {
                 total,
                 page,
                 lastPage: Math.ceil(total / limit),
+                limit,
             },
         };
     }
 
-    // --- 2. GET MODULE DETAIL (With Content & Injection) ---
-
+    // --- 2. GET MODULE DETAIL ---
     async findOneBySlug(userId: string, slug: string) {
         const module = await this.prisma.educationModule.findUnique({
             where: { slug },
             include: {
                 category: true,
-                sections: {
-                    orderBy: { sectionOrder: 'asc' },
-                },
-                userProgress: {
-                    where: { userId },
-                },
+                sections: { orderBy: { sectionOrder: 'asc' } },
+                userProgress: { where: { userId } },
             },
         });
 
@@ -97,9 +96,9 @@ export class EducationReadService {
         return new ModuleDetailResponse({
             ...module,
             category: new CategorySerializer(module.category),
-            // [FIX] Explicitly map sections to ensure type compatibility
-            sections: module.sections.map((section) => new ModuleSectionSerializer(section)),
-
+            sections: module.sections.map(
+                (section) => new ModuleSectionSerializer(section),
+            ),
             currentProgress: progressRecord
                 ? {
                     status: progressRecord.status,
@@ -110,8 +109,7 @@ export class EducationReadService {
         });
     }
 
-    // --- 3. GET CATEGORIES (Helper) ---
-
+    // --- 3. GET CATEGORIES ---
     async getCategories() {
         const categories = await this.prisma.educationCategory.findMany({
             where: {
@@ -129,31 +127,38 @@ export class EducationReadService {
         return categories.map((c) => new CategorySerializer(c));
     }
 
-    // --- [NEW] ANTI-CHEAT LOGIC ---
-
-    /**
-     * Mencatat waktu mulai kuis (Server-Side Timer Start).
-     * Dipanggil saat user mengakses GET /quiz.
-     */
+    // --- 4. ANTI-CHEAT QUIZ TIMER ---
     async markQuizStart(userId: string, moduleId: string) {
-        // Upsert: Create baru atau Update session yang ada
-        // Kita memaksa update 'startedAt' ke NOW() setiap kali endpoint kuis dipanggil
-        // untuk memastikan timer sinkron dengan sesi terakhir.
-        await this.prisma.userEducationProgress.upsert({
-            where: {
-                userId_moduleId: { userId, moduleId },
-            },
-            update: {
-                startedAt: new Date(), // [CRITICAL] Reset timer server
-                status: EducationProgressStatus.STARTED,
-            },
-            create: {
-                userId,
-                moduleId,
-                startedAt: new Date(),
-                status: EducationProgressStatus.STARTED,
-                lastReadSectionId: '', // Placeholder
-            },
-        });
+        const existingProgress =
+            await this.prisma.userEducationProgress.findUnique({
+                where: { userId_moduleId: { userId, moduleId } },
+            });
+
+        if (!existingProgress) {
+            await this.prisma.userEducationProgress.create({
+                data: {
+                    userId,
+                    moduleId,
+                    status: EducationProgressStatus.STARTED,
+                    startedAt: new Date(),
+                    lastReadSectionId: null,
+                },
+            });
+            return;
+        }
+
+        if (existingProgress.status === EducationProgressStatus.STARTED) {
+            return; // Resume, DO NOT reset timer
+        }
+
+        if (existingProgress.status === EducationProgressStatus.COMPLETED) {
+            await this.prisma.userEducationProgress.update({
+                where: { userId_moduleId: { userId, moduleId } },
+                data: {
+                    status: EducationProgressStatus.STARTED,
+                    startedAt: new Date(),
+                },
+            });
+        }
     }
 }
