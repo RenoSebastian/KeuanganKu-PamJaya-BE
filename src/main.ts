@@ -2,7 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import * as express from 'express'; 
+import * as express from 'express';
 
 // --- Logging & Monitoring Imports ---
 import { WinstonModule } from 'nest-winston';
@@ -32,12 +32,13 @@ async function bootstrap() {
 
   /**
    * 4. Konfigurasi CORS (Cross-Origin Resource Sharing)
-   * Menggunakan domain yang sama dengan protokol HTTPS untuk menghindari Mixed Content
+   * [CRITICAL FIX] Menambahkan localhost:3000 agar Frontend Dev bisa akses
    */
   app.enableCors({
     origin: [
-      'https://keuanganku.geocitra.com',
-      'http://localhost:8080', 
+      'http://localhost:3000',           // [ADDED] Frontend Local Dev (Next.js)
+      'https://keuanganku.geocitra.com', // Production Domain
+      'http://localhost:8080',           // Docker/Nginx Proxy Local
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
@@ -47,34 +48,34 @@ async function bootstrap() {
   // 5. Global Registration (Interceptors, Filters, Pipes)
   app.useGlobalInterceptors(new LoggingInterceptor());
   app.useGlobalFilters(new AllExceptionsFilter());
-  
+
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
     transform: true,
-    forbidNonWhitelisted: false, 
+    forbidNonWhitelisted: false,
   }));
 
   // 6. Swagger Documentation
-  // Menambahkan server produksi agar test API via Swagger mengarah ke HTTPS
   const config = new DocumentBuilder()
     .setTitle('Keuanganku API')
-    .setDescription('Dokumentasi API untuk Aplikasi Perencanaan Keuangan - Production Mode')
+    .setDescription('Dokumentasi API untuk Aplikasi Perencanaan Keuangan')
     .setVersion('1.0')
     .addBearerAuth()
+    // Menambahkan server opsi agar mudah testing di Swagger UI
+    .addServer('http://localhost:4000', 'Local Development')
     .addServer('https://keuanganku.geocitra.com', 'Production Server')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
-  // Swagger Docs akan dapat diakses di: https://keuanganku.geocitra.com/api/docs
+  // Swagger Docs akan dapat diakses di: /api/docs
   SwaggerModule.setup('api/docs', app, document);
 
   // 7. Port & Listener
-  // Mapping Docker: 3001 (host) -> 4000 (container)
   const port = process.env.PORT || 4000;
   await app.listen(port);
 
   logger.log(`🚀 Server berjalan di internal port: ${port}`);
-  logger.log(`📄 Swagger Docs siap di: https://keuanganku.geocitra.com/api/docs`);
+  logger.log(`📄 Swagger Docs siap di: http://localhost:${port}/api/docs`);
 }
 
 bootstrap();
