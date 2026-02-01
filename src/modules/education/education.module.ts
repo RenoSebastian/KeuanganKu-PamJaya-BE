@@ -3,25 +3,28 @@ import { PrismaModule } from '../../../prisma/prisma.module';
 
 // Controllers
 import { AdminEducationController } from './controllers/admin-education.controller';
-import { PublicEducationController } from './controllers/public-education.controller'; // [NEW]
+import { PublicEducationController } from './controllers/public-education.controller';
 
 // Services
 import { EducationManagementService } from './services/education-management.service';
-import { EducationReadService } from './services/education-read.service'; // [NEW]
+import { EducationReadService } from './services/education-read.service';
+import { QuizEngineService } from './services/quiz-engine.service'; // [NEW]
 
 @Module({
     imports: [PrismaModule],
     controllers: [
-        AdminEducationController, // Phase 2
-        PublicEducationController, // Phase 3
+        AdminEducationController,
+        PublicEducationController,
     ],
     providers: [
-        EducationManagementService, // Phase 2
-        EducationReadService, // Phase 3
+        EducationManagementService,
+        EducationReadService,
+        QuizEngineService, // [NEW] Register Provider
     ],
     exports: [
         EducationManagementService,
-        EducationReadService, // Export read service untuk dipakai fitur rekomendasi nanti
+        EducationReadService,
+        QuizEngineService, // Export jika modul lain butuh
     ],
 })
 export class EducationModule { }

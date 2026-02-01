@@ -10,6 +10,7 @@ import { CreateModuleDto } from '../dto/create-module.dto';
 import { UpdateModuleDto } from '../dto/update-module.dto';
 import { UpdateModuleStatusDto } from '../dto/update-module-status.dto';
 import { ReorderSectionsDto } from '../dto/reorder-sections.dto';
+import { UpsertQuizDto } from '../dto/upsert-quiz.dto';
 import { EducationModuleStatus } from '@prisma/client';
 import slugify from 'slugify';
 
@@ -19,7 +20,7 @@ export class EducationManagementService {
 
     constructor(private readonly prisma: PrismaService) { }
 
-    // --- CORE CRUD ---
+    // --- CORE CRUD OPERATIONS ---
 
     async create(dto: CreateModuleDto) {
         const { sections, ...moduleData } = dto;
@@ -76,9 +77,7 @@ export class EducationManagementService {
         if (!existing) throw new NotFoundException('Module not found');
 
         // 2. Handle Slug Update jika Title berubah
-        // [FIX] Explicit Type Declaration to avoid "Type 'string' is not assignable to type 'undefined'" error
         let newSlug: string | undefined;
-
         if (dto.title && dto.title !== existing.title) {
             newSlug = await this.generateUniqueSlug(dto.title);
         }
@@ -88,7 +87,7 @@ export class EducationManagementService {
             where: { id },
             data: {
                 ...dto,
-                slug: newSlug, // Now safe to pass undefined or string
+                slug: newSlug,
             },
         });
     }
@@ -96,17 +95,30 @@ export class EducationManagementService {
     async updateStatus(id: string, dto: UpdateModuleStatusDto) {
         const module = await this.prisma.educationModule.findUnique({
             where: { id },
-            include: { sections: true },
+            include: {
+                sections: true,
+                quiz: { include: { questions: true } }, // Cek keberadaan quiz
+            },
         });
 
         if (!module) throw new NotFoundException('Module not found');
 
-        // --- LOGIC GUARDRAIL: No Empty Publish ---
+        // --- LOGIC GUARDRAILS: PUBLISH SAFETY CHECK ---
         if (dto.status === EducationModuleStatus.PUBLISHED) {
+            // 1. Check Content Existence
             if (!module.sections || module.sections.length === 0) {
                 throw new BadRequestException(
                     'Cannot PUBLISH a module with no sections (Empty Content). Please add content first.',
                 );
+            }
+
+            // 2. Check Quiz Integrity (Jika ada Quiz, wajib ada soal)
+            if (module.quiz) {
+                if (!module.quiz.questions || module.quiz.questions.length === 0) {
+                    throw new BadRequestException(
+                        'Cannot PUBLISH. This module has a Quiz enabled but contains NO questions. Please add questions or remove the quiz.',
+                    );
+                }
             }
         }
 
@@ -114,7 +126,8 @@ export class EducationManagementService {
             where: { id },
             data: {
                 status: dto.status,
-                publishedAt: dto.status === EducationModuleStatus.PUBLISHED ? new Date() : module.publishedAt,
+                publishedAt:
+                    dto.status === EducationModuleStatus.PUBLISHED ? new Date() : module.publishedAt,
             },
         });
     }
@@ -123,26 +136,126 @@ export class EducationManagementService {
         const module = await this.prisma.educationModule.findUnique({ where: { id } });
         if (!module) throw new NotFoundException('Module not found');
 
-        // Hard Delete: Karena Cascade delete aktif di Schema, sections otomatis terhapus.
+        // Hard Delete: Karena Cascade delete aktif di Schema, sections & quiz otomatis terhapus.
         return this.prisma.educationModule.delete({
             where: { id },
         });
     }
 
-    // --- SECTION MANAGEMENT ---
-
     async reorderSections(moduleId: string, dto: ReorderSectionsDto) {
         const module = await this.prisma.educationModule.findUnique({ where: { id: moduleId } });
         if (!module) throw new NotFoundException('Module not found');
 
+        // Transactional Reorder
         return this.prisma.$transaction(
             dto.items.map((item) =>
                 this.prisma.moduleSection.update({
-                    where: { id: item.sectionId, moduleId },
+                    where: { id: item.sectionId, moduleId }, // Safety Check: Pastikan section milik module ini
                     data: { sectionOrder: item.newOrder },
                 }),
             ),
         );
+    }
+
+    // --- QUIZ MANAGEMENT LOGIC (Phase 3 Integration) ---
+
+    async upsertQuiz(moduleId: string, dto: UpsertQuizDto) {
+        // 1. Validate Parent Module
+        const module = await this.prisma.educationModule.findUnique({ where: { id: moduleId } });
+        if (!module) throw new NotFoundException('Module not found');
+
+        // 2. LOGIC GUARDRAILS (Validation Before Transaction)
+
+        // Rule A: Ghost Quiz Prevention
+        if (!dto.questions || dto.questions.length === 0) {
+            throw new BadRequestException('A quiz must contain at least one question.');
+        }
+
+        dto.questions.forEach((q, index) => {
+            // Rule B: Min Options
+            if (!q.options || q.options.length < 2) {
+                throw new BadRequestException(
+                    `Question #${index + 1} ("${q.questionText.substring(0, 20)}...") must have at least 2 options.`,
+                );
+            }
+
+            // Rule C: Single Truth (Must have exactly one correct answer)
+            const correctOptions = q.options.filter((opt) => opt.isCorrect);
+            if (correctOptions.length !== 1) {
+                throw new BadRequestException(
+                    `Question #${index + 1} must have EXACTLY ONE correct option. Found: ${correctOptions.length}.`,
+                );
+            }
+        });
+
+        // 3. Transactional Replacement
+        try {
+            return await this.prisma.$transaction(async (tx) => {
+                // A. Upsert Quiz Header (Create if not exists, Update if exists)
+                // Kita gunakan upsert agar ID quiz tetap persisten jika sudah ada
+                const quiz = await tx.quiz.upsert({
+                    where: { moduleId },
+                    create: {
+                        moduleId,
+                        passingScore: dto.passingScore,
+                        timeLimit: dto.timeLimit,
+                        maxAttempts: dto.maxAttempts,
+                        description: dto.description,
+                    },
+                    update: {
+                        passingScore: dto.passingScore,
+                        timeLimit: dto.timeLimit,
+                        maxAttempts: dto.maxAttempts,
+                        description: dto.description,
+                    },
+                });
+
+                // B. Wipe Clean: Delete Existing Questions (Cascade deletes options)
+                // Ini lebih aman daripada diffing. Kita hapus semua soal lama milik quiz ini.
+                await tx.quizQuestion.deleteMany({
+                    where: { quizId: quiz.id },
+                });
+
+                // C. Bulk Insert New Questions & Options
+                // Kita loop karena Prisma createMany belum support nested writes (options)
+                for (const q of dto.questions) {
+                    await tx.quizQuestion.create({
+                        data: {
+                            quizId: quiz.id,
+                            questionText: q.questionText,
+                            type: q.type,
+                            orderIndex: q.orderIndex,
+                            explanation: q.explanation,
+                            options: {
+                                createMany: {
+                                    data: q.options.map((opt) => ({
+                                        optionText: opt.optionText,
+                                        isCorrect: opt.isCorrect,
+                                    })),
+                                },
+                            },
+                        },
+                    });
+                }
+
+                // Return full structure for confirmation
+                return await tx.quiz.findUnique({
+                    where: { id: quiz.id },
+                    include: {
+                        questions: {
+                            include: { options: true },
+                            orderBy: { orderIndex: 'asc' },
+                        },
+                    },
+                });
+            });
+        } catch (error) {
+            // Re-throw validation errors directly
+            if (error instanceof BadRequestException) throw error;
+
+            this.logger.error(`Failed to upsert quiz: ${error.message}`);
+            throw new InternalServerErrorException('Transaction failed while saving quiz data.');
+        }
     }
 
     // --- UTILITIES ---
@@ -153,6 +266,7 @@ export class EducationManagementService {
         let counter = 1;
         let isUnique = false;
 
+        // Loop check keberadaan slug
         while (!isUnique) {
             const existing = await this.prisma.educationModule.findUnique({
                 where: { slug },

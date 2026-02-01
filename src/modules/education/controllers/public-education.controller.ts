@@ -2,24 +2,30 @@ import {
     Controller,
     Get,
     Param,
+    Post,
+    Body,
     Query,
     UseGuards,
     UseInterceptors,
     ClassSerializerInterceptor,
-    Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiQuery } from '@nestjs/swagger';
 import { EducationReadService } from '../services/education-read.service';
+import { QuizEngineService } from '../services/quiz-engine.service';
+import { SubmitQuizDto } from '../dto/submit-quiz.dto';
 import { JwtAuthGuard } from '../../../modules/auth/guards/jwt-auth.guard';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 
 @ApiTags('Education - Learning Portal')
 @Controller('education')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard) // Gate 1: Login Required
 @ApiBearerAuth()
-@UseInterceptors(ClassSerializerInterceptor) // Mengaktifkan transformation @Exclude/@Expose
+@UseInterceptors(ClassSerializerInterceptor) // Gate 2: Data Sanitization (Anti-Leak)
 export class PublicEducationController {
-    constructor(private readonly readService: EducationReadService) { }
+    constructor(
+        private readonly readService: EducationReadService,
+        private readonly quizService: QuizEngineService,
+    ) { }
 
     @Get('categories')
     @ApiOperation({ summary: 'Get list of active learning categories' })
@@ -48,5 +54,23 @@ export class PublicEducationController {
     @ApiOperation({ summary: 'Read full module content by Slug' })
     findOne(@GetUser('id') userId: string, @Param('slug') slug: string) {
         return this.readService.findOneBySlug(userId, slug);
+    }
+
+    // --- QUIZ ENDPOINTS ---
+
+    @Get('modules/:slug/quiz')
+    @ApiOperation({ summary: 'Start Quiz: Get questions (Safe Mode - No Answers)' })
+    getQuiz(@GetUser('id') userId: string, @Param('slug') slug: string) {
+        return this.quizService.getQuizByModuleSlug(userId, slug);
+    }
+
+    @Post('modules/:slug/quiz/submit')
+    @ApiOperation({ summary: 'Submit Quiz Answers & Get Score' })
+    submitQuiz(
+        @GetUser('id') userId: string,
+        @Param('slug') slug: string,
+        @Body() dto: SubmitQuizDto,
+    ) {
+        return this.quizService.submitQuiz(userId, slug, dto);
     }
 }

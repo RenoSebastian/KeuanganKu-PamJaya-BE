@@ -5,6 +5,7 @@ import {
     Param,
     Patch,
     Post,
+    Put,
     UseGuards,
     HttpCode,
     HttpStatus,
@@ -15,15 +16,16 @@ import { CreateModuleDto } from '../dto/create-module.dto';
 import { UpdateModuleDto } from '../dto/update-module.dto';
 import { UpdateModuleStatusDto } from '../dto/update-module-status.dto';
 import { ReorderSectionsDto } from '../dto/reorder-sections.dto';
+import { UpsertQuizDto } from '../dto/upsert-quiz.dto';
 import { JwtAuthGuard } from '../../../modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
-import { Role } from '@prisma/client'; // Import Enum Role dari Prisma
+import { Role } from '@prisma/client';
 
 @ApiTags('Admin - Education Management')
 @Controller('admin/education')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN, Role.DIRECTOR) // Gatekeeper Utama
+@Roles(Role.ADMIN, Role.DIRECTOR) // CRITICAL: This secures ALL endpoints in this class
 @ApiBearerAuth()
 export class AdminEducationController {
     constructor(private readonly managementService: EducationManagementService) { }
@@ -57,5 +59,16 @@ export class AdminEducationController {
     @ApiOperation({ summary: 'Permanently delete a module and its sections' })
     delete(@Param('id') id: string) {
         return this.managementService.delete(id);
+    }
+
+    // --- QUIZ MANAGEMENT ---
+
+    @Put('modules/:id/quiz')
+    @ApiOperation({
+        summary: 'Upsert (Create/Replace) Quiz for a module',
+        description: 'Transactional save. Replaces all existing questions with the new payload.'
+    })
+    upsertQuiz(@Param('id') id: string, @Body() dto: UpsertQuizDto) {
+        return this.managementService.upsertQuiz(id, dto);
     }
 }

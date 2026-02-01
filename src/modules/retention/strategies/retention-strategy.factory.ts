@@ -2,12 +2,15 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { HistoricalRetentionStrategy } from './historical-retention.strategy';
 import { SnapshotRetentionStrategy } from './snapshot-retention.strategy';
 import { IRetentionStrategy } from '../interfaces/retention-strategy.interface';
+import { EducationCleanupStrategy } from '../strategies/education-cleanup.strategy'; // [NEW]
+
 
 @Injectable()
 export class RetentionStrategyFactory {
     constructor(
         private readonly historicalStrategy: HistoricalRetentionStrategy,
         private readonly snapshotStrategy: SnapshotRetentionStrategy,
+        private readonly educationStrategy: EducationCleanupStrategy,
     ) { }
 
     getStrategy(entityType: string): { strategy: IRetentionStrategy; tableName: string } {
@@ -25,6 +28,8 @@ export class RetentionStrategyFactory {
                 return { strategy: this.snapshotStrategy, tableName: 'budget_plans' };
             case 'INSURANCE':
                 return { strategy: this.snapshotStrategy, tableName: 'insurance_plans' };
+            case 'EDUCATION_CLEANUP': // [NEW] Case
+                return this.educationStrategy;
 
             default:
                 throw new BadRequestException(`Entity type '${entityType}' not supported for retention.`);
