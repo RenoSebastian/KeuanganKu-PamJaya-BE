@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { EducationModuleStatus } from '@prisma/client';
+import { EducationModuleStatus, EducationProgressStatus } from '@prisma/client';
 import {
     ModuleListResponse,
     ModuleDetailResponse,
@@ -127,5 +127,33 @@ export class EducationReadService {
         });
 
         return categories.map((c) => new CategorySerializer(c));
+    }
+
+    // --- [NEW] ANTI-CHEAT LOGIC ---
+
+    /**
+     * Mencatat waktu mulai kuis (Server-Side Timer Start).
+     * Dipanggil saat user mengakses GET /quiz.
+     */
+    async markQuizStart(userId: string, moduleId: string) {
+        // Upsert: Create baru atau Update session yang ada
+        // Kita memaksa update 'startedAt' ke NOW() setiap kali endpoint kuis dipanggil
+        // untuk memastikan timer sinkron dengan sesi terakhir.
+        await this.prisma.userEducationProgress.upsert({
+            where: {
+                userId_moduleId: { userId, moduleId },
+            },
+            update: {
+                startedAt: new Date(), // [CRITICAL] Reset timer server
+                status: EducationProgressStatus.STARTED,
+            },
+            create: {
+                userId,
+                moduleId,
+                startedAt: new Date(),
+                status: EducationProgressStatus.STARTED,
+                lastReadSectionId: '', // Placeholder
+            },
+        });
     }
 }

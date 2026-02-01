@@ -504,6 +504,7 @@ model UserEducationProgress {
   
   completedAt       DateTime?               @map("completed_at")
   updatedAt         DateTime                @updatedAt @map("updated_at")
+  startedAt         DateTime?               @map("started_at")
 
   // Relasi
   user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -8,13 +8,16 @@ import {
     UseGuards,
     UseInterceptors,
     ClassSerializerInterceptor,
+    NotFoundException,
+    HttpStatus
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags, ApiQuery } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { EducationReadService } from '../services/education-read.service';
 import { QuizEngineService } from '../services/quiz-engine.service';
 import { SubmitQuizDto } from '../dto/submit-quiz.dto';
 import { JwtAuthGuard } from '../../../modules/auth/guards/jwt-auth.guard';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
+import { PublicQuizSerializer } from '../serialization/quiz.serializer';
 
 @ApiTags('Education - Learning Portal')
 @Controller('education')
@@ -59,9 +62,29 @@ export class PublicEducationController {
     // --- QUIZ ENDPOINTS ---
 
     @Get('modules/:slug/quiz')
-    @ApiOperation({ summary: 'Start Quiz: Get questions (Safe Mode - No Answers)' })
-    getQuiz(@GetUser('id') userId: string, @Param('slug') slug: string) {
-        return this.quizService.getQuizByModuleSlug(userId, slug);
+    @ApiOperation({
+        summary: 'Start Quiz: Get questions (Safe Mode - No Answers)',
+        description: 'Mengembalikan soal kuis tanpa kunci jawaban (Zero Leakage) menggunakan Serializer.'
+    })
+    @ApiResponse({
+        status: HttpStatus.OK,
+        type: PublicQuizSerializer,
+        description: 'Data kuis aman tanpa field isCorrect.'
+    })
+    async getQuiz(
+        @GetUser('id') userId: string,
+        @Param('slug') slug: string
+    ): Promise<PublicQuizSerializer> {
+        // 1. Fetch Raw Data dari Service
+        const quiz = await this.quizService.getQuizByModuleSlug(userId, slug);
+
+        if (!quiz) {
+            throw new NotFoundException('Kuis tidak ditemukan untuk modul ini.');
+        }
+
+        // 2. [CRITICAL] Transform ke Serializer Class
+        // Ini memicu logic @Exclude() pada field isCorrect dan explanation
+        return new PublicQuizSerializer(quiz);
     }
 
     @Post('modules/:slug/quiz/submit')

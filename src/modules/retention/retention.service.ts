@@ -16,8 +16,6 @@ import { RetentionEntityType } from './dto/export-query.dto';
 @Injectable()
 export class RetentionService {
     private readonly logger = new Logger(RetentionService.name);
-
-    // SECRET KEY untuk HMAC Signature
     private readonly HMAC_SECRET = process.env.RETENTION_SECRET || 'DO_NOT_USE_THIS_IN_PROD_SUPER_SECRET_KEY_99';
 
     constructor(
@@ -125,8 +123,6 @@ export class RetentionService {
         }
     }
 
-    // --- INTERNAL MAPPING HELPER ---
-
     private getTableName(entityType: string): string {
         const map: Record<string, string> = {
             [RetentionEntityType.FINANCIAL_CHECKUP]: 'financial_checkups',
@@ -155,13 +151,12 @@ export class RetentionService {
         this.logger.log(`Executing SECURE PRUNE for ${entityType} < ${cutoff.toISOString()} by Admin ${adminId}`);
 
         // 2. Strategy Execution
-        // Sekarang kita mendelegasikan seluruh logika ke Strategy masing-masing
         try {
             const strategy = this.strategyFactory.getStrategy(entityType);
-            const tableName = this.getTableName(entityType); // Context untuk strategi generik
+            const tableName = this.getTableName(entityType);
 
-            // Execute: Strategy akan menangani dry-run, counting, dan deletion
-            const result = await strategy.execute(cutoff, false, tableName); // isDryRun = false
+            // Execute Strategy
+            const result = await strategy.execute(cutoff, false, tableName);
 
             if (result.status === 'FAILED') {
                 throw new InternalServerErrorException('Strategy execution reported failure.');
@@ -200,8 +195,6 @@ export class RetentionService {
             throw new InternalServerErrorException(`Gagal mengeksekusi strategi retensi: ${error.message}`);
         }
     }
-
-    // --- HELPER METHODS ---
 
     private formatBytes(bytes: number, decimals = 2): string {
         if (bytes === 0) return '0 Bytes';

@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { PruneExecutionDto } from '../dto/prune-execution.dto';
 import { EducationModuleStatus } from '@prisma/client';
-import { RetentionStrategy } from '../interfaces/retention-strategy.interface'; // [FIX] Import Interface
+import { RetentionStrategy } from '../interfaces/retention-strategy.interface';
 
 @Injectable()
 export class EducationCleanupStrategy implements RetentionStrategy {
@@ -11,64 +11,86 @@ export class EducationCleanupStrategy implements RetentionStrategy {
     constructor(private readonly prisma: PrismaService) { }
 
     /**
-     * Strategi Retensi Khusus Edukasi:
-     * 1. PROTECT: UserEducationProgress (KPI Data) tidak boleh dihapus.
-     * 2. PRUNE: EducationModule yang statusnya ARCHIVED dan sudah > 2 tahun (sesuai cutoffDate).
+     * Strategi Retensi Cerdas:
+     * 1. Cari kandidat modul yang statusnya ARCHIVED & usang.
+     * 2. FILTER: Jangan hapus modul yang memiliki data progress user (KPI).
+     * 3. EKSEKUSI: Hapus hanya modul yang aman untuk dihapus.
      */
     async execute(cutoffDate: Date, isDryRun: boolean): Promise<PruneExecutionDto> {
-        this.logger.log('Executing Education Retention Strategy...');
+        this.logger.log('Executing Education Retention Strategy (Smart Mode)...');
 
-        // 1. Whitelist Log (Data KPI Pegawai tidak disentuh)
-        this.logger.log('[SAFEGUARD] UserEducationProgress table is WHITELISTED. Skipping user progress data pruning.');
-
-        // 2. Identify Stale Archived Modules
-        // Mencari modul yang statusnya ARCHIVED dan terakhir diupdate sebelum tanggal cutoff.
-        const staleModules = await this.prisma.educationModule.count({
+        // 1. Identifikasi Semua Kandidat (Archived & Old)
+        const candidates = await this.prisma.educationModule.findMany({
             where: {
                 status: EducationModuleStatus.ARCHIVED,
                 updatedAt: { lte: cutoffDate },
             },
+            select: { id: true },
         });
 
-        // --- Mode DRY RUN (Hanya Estimasi) ---
+        const candidateIds = candidates.map(c => c.id);
+
+        if (candidateIds.length === 0) {
+            return this.buildResult(0, 'SUCCESS', cutoffDate);
+        }
+
+        // 2. SAFETY CHECK: Cari modul yang punya data UserProgress
+        // Kita tidak boleh menghapus modul ini karena akan menghapus KPI pegawai (Cascade)
+        const modulesWithProgress = await this.prisma.userEducationProgress.findMany({
+            where: {
+                moduleId: { in: candidateIds }
+            },
+            select: { moduleId: true },
+            distinct: ['moduleId']
+        });
+
+        const protectedModuleIds = new Set(modulesWithProgress.map(m => m.moduleId));
+
+        // Filter: Hanya hapus modul yang TIDAK ada di protected list
+        const safeToDeleteIds = candidateIds.filter(id => !protectedModuleIds.has(id));
+
+        const skippedCount = candidateIds.length - safeToDeleteIds.length;
+        if (skippedCount > 0) {
+            this.logger.warn(`[SAFEGUARD] Skipped ${skippedCount} modules because they contain User KPI data.`);
+        }
+
+        // --- DRY RUN ---
         if (isDryRun) {
             return {
                 strategyName: 'EducationCleanupStrategy',
-                targetTable: 'education_modules (ARCHIVED ONLY)',
-                recordsToPrune: staleModules,
+                targetTable: 'education_modules',
+                recordsToPrune: safeToDeleteIds.length,
                 status: 'DRY_RUN',
                 executedAt: new Date(),
-                // Field validasi input dikosongkan karena ini output process
                 entityType: 'EDUCATION_CLEANUP',
                 cutoffDate: cutoffDate.toISOString(),
                 pruneToken: 'INTERNAL_PROCESS'
             };
         }
 
-        // --- Mode EXECUTE (Penghapusan Fisik) ---
-        // Karena Cascade Delete aktif di Schema Prisma, menghapus EducationModule
-        // akan otomatis menghapus Quiz, Questions, dan Options terkait.
-
+        // --- EXECUTE ---
         let deletedCount = 0;
-        if (staleModules > 0) {
+        if (safeToDeleteIds.length > 0) {
             const result = await this.prisma.educationModule.deleteMany({
                 where: {
-                    status: EducationModuleStatus.ARCHIVED,
-                    updatedAt: { lte: cutoffDate },
-                },
+                    id: { in: safeToDeleteIds }
+                }
             });
             deletedCount = result.count;
         }
 
+        return this.buildResult(deletedCount, 'SUCCESS', cutoffDate);
+    }
+
+    private buildResult(count: number, status: 'SUCCESS' | 'FAILED' | 'DRY_RUN', date: Date): PruneExecutionDto {
         return {
             strategyName: 'EducationCleanupStrategy',
             targetTable: 'education_modules',
-            recordsToPrune: deletedCount,
-            status: 'SUCCESS',
+            recordsToPrune: count,
+            status: status,
             executedAt: new Date(),
-            // Isi field wajib DTO dengan nilai default/konteks saat ini
             entityType: 'EDUCATION_CLEANUP',
-            cutoffDate: cutoffDate.toISOString(),
+            cutoffDate: date.toISOString(),
             pruneToken: 'EXECUTED'
         };
     }
