@@ -1,89 +1,123 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, InternalServerErrorException, Logger, OnModuleInit } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
-export class MediaStorageService {
+export class MediaStorageService implements OnModuleInit {
     private readonly logger = new Logger(MediaStorageService.name);
 
-    /**
-     * [LOGICAL FIX] Penyesuaian Jalur Folder
-     * Kita gunakan './uploads' (root) agar sinkron dengan:
-     * 1. main.ts -> app.useStaticAssets
-     * 2. app.module.ts -> ServeStaticModule
-     */
+    // [CONFIGURATION]
+    // Menggunakan strategi Local Storage di root folder './uploads'
+    // Ini memisahkan file fisik dari source code (/src) dan build folder (/dist)
     private readonly UPLOAD_DIR = './uploads';
-    private readonly URL_PREFIX = 'uploads'; // Hilangkan '/' di depan untuk konsistensi DB
 
-    constructor(private readonly configService: ConfigService) {
+    // URL Prefix yang akan disimpan di database.
+    // Frontend akan mengakses via: {BASE_URL}/uploads/{filename}
+    private readonly URL_PREFIX = 'uploads';
+
+    /**
+     * Lifecycle Hook: Dijalankan otomatis saat modul diinisialisasi.
+     * Memastikan folder upload tersedia sebelum ada request masuk.
+     */
+    onModuleInit() {
         this.ensureUploadDirectoryExists();
     }
 
     /**
      * Core Method: Upload File
-     * Mengubah Binary Buffer menjadi Path String yang tersimpan di DB.
+     * Mengubah Binary Buffer dari Request menjadi File Fisik di Server.
      */
-    async uploadFile(file: Express.Multer.File): Promise<{ url: string; filename: string; mimeType: string }> {
+    async uploadFile(file: Express.Multer.File): Promise<{ url: string; filename: string; mimeType: string; size: number }> {
         try {
-            // 1. Generate Safe Filename (UUID + Original Extension)
-            // Menghindari bentrok nama file dan karakter ilegal dari user
+            // 1. Validasi Keberadaan File (Defensive Programming)
+            if (!file) {
+                throw new InternalServerErrorException('File object is empty.');
+            }
+
+            // 2. Generate Safe Filename
+            // Format: {UUID-V4}{OriginalExtension}
+            // Mencegah overwrite file dengan nama sama dan sanitasi karakter aneh dari user.
             const fileExt = path.extname(file.originalname).toLowerCase();
             const filename = `${uuidv4()}${fileExt}`;
-            const filePath = path.join(this.UPLOAD_DIR, filename);
 
-            // 2. Write File to Disk
-            // Menggunakan fs.promises agar tidak blocking event loop (Asynchronous)
+            // Resolve absolute path untuk keamanan penulisan
+            const filePath = path.join(this.getUploadPath(), filename);
+
+            // 3. Write File to Disk (Asynchronous I/O)
+            // Menggunakan fs.promises agar tidak memblokir Event Loop Node.js
             await fs.promises.writeFile(filePath, file.buffer);
 
-            // 3. Construct URL untuk Database
-            // Hasilnya: "uploads/uuid-name.jpg"
-            const dbPath = `${this.URL_PREFIX}/${filename}`;
+            this.logger.log(`File persisted successfully: ${filename} (${file.size} bytes)`);
 
-            this.logger.log(`File persisted to disk: ${filename}`);
-
+            // 4. Return Metadata
+            // Mengembalikan path relatif agar database tidak terikat pada domain/host tertentu.
+            // Format: "uploads/uuid-file.jpg"
             return {
-                url: dbPath,
+                url: `${this.URL_PREFIX}/${filename}`,
                 filename: filename,
                 mimeType: file.mimetype,
+                size: file.size,
             };
+
         } catch (error) {
-            this.logger.error(`Failed to write file to storage: ${error.message}`);
-            throw new InternalServerErrorException('Gagal menyimpan file ke media storage.');
+            this.logger.error(`Failed to save file: ${error.message}`, error.stack);
+            // Bungkus error internal agar tidak bocor detail sistem ke client
+            throw new InternalServerErrorException('Gagal menyimpan file ke media storage server.');
         }
     }
 
     /**
      * Utility: Delete File
-     * Digunakan saat menghapus Modul atau mengganti gambar agar tidak jadi 'zombie file'
+     * Menghapus file fisik. Penting untuk proses Cleanup/Retention agar server tidak penuh sampah.
+     * Digunakan oleh EducationService saat Update (ganti gambar) atau Delete modul.
      */
-    async deleteFile(filename: string): Promise<void> {
-        try {
-            // Pastikan kita hanya mengambil nama filenya saja, bukan full path
-            const pureFilename = path.basename(filename);
-            const filePath = path.join(this.UPLOAD_DIR, pureFilename);
+    async deleteFile(relativePath: string): Promise<void> {
+        if (!relativePath) return;
 
-            if (fs.existsSync(filePath)) {
-                await fs.promises.unlink(filePath);
-                this.logger.log(`File deleted: ${pureFilename}`);
+        try {
+            // [SECURITY] Sanitasi input path untuk mencegah Path Traversal Attack (misal: ../../etc/passwd)
+            // Kita memaksa hanya mengambil nama file terakhir dan menempelkannya ke folder upload resmi.
+            const filename = path.basename(relativePath);
+            const absolutePath = path.join(this.getUploadPath(), filename);
+
+            // Cek eksistensi file sebelum menghapus untuk menghindari error ENOENT
+            try {
+                await fs.promises.access(absolutePath, fs.constants.F_OK);
+                await fs.promises.unlink(absolutePath);
+                this.logger.log(`File deleted successfully: ${filename}`);
+            } catch (err) {
+                // Jika file tidak ditemukan, kita log sebagai warning tapi tidak throw error.
+                // Ini penting agar transaksi DB utama (misal: Delete Module) tidak rollback 
+                // hanya karena file gambarnya sudah hilang duluan.
+                this.logger.warn(`File not found for deletion or access denied: ${absolutePath}`);
             }
         } catch (error) {
-            this.logger.warn(`Cleanup failed for ${filename}: ${error.message}`);
+            this.logger.error(`Cleanup failed for ${relativePath}: ${error.message}`);
+            // Kita suppress error delete agar tidak mengganggu flow bisnis utama (Silent Fail)
         }
     }
 
     // --- INTERNAL HELPERS ---
 
     /**
-     * Memastikan folder tujuan ada saat aplikasi startup.
-     * Mencegah 'Error: ENOENT: no such file or directory' saat upload pertama kali.
+     * Mengembalikan Absolute Path ke folder uploads.
+     * Menggunakan process.cwd() untuk memastikan path benar dimanapun node dijalankan.
      */
+    private getUploadPath(): string {
+        return path.join(process.cwd(), this.UPLOAD_DIR);
+    }
+
     private ensureUploadDirectoryExists() {
-        const fullPath = path.resolve(this.UPLOAD_DIR);
+        const fullPath = this.getUploadPath();
         if (!fs.existsSync(fullPath)) {
-            fs.mkdirSync(fullPath, { recursive: true });
-            this.logger.log(`Infrastructure Ready. Upload directory created at: ${fullPath}`);
+            try {
+                fs.mkdirSync(fullPath, { recursive: true });
+                this.logger.log(`Infrastructure Ready. Upload directory created at: ${fullPath}`);
+            } catch (error) {
+                this.logger.error(`CRITICAL: Failed to create upload directory at ${fullPath}. ${error.message}`);
+                throw new Error('Storage infrastructure initialization failed.');
+            }
         }
     }
 }

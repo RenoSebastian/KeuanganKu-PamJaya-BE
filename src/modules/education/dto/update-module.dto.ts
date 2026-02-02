@@ -1,9 +1,9 @@
-import { PartialType, OmitType } from '@nestjs/mapped-types';
+import { PartialType } from '@nestjs/swagger';
 import { CreateModuleDto } from './create-module.dto';
 
-// Kita exclude 'sections' karena update section biasanya dilakukan secara terpisah
-// atau memerlukan logika diffing yang spesifik, namun untuk CRUD sederhana
-// Admin bisa mengupdate metadata module saja lewat sini.
-export class UpdateModuleDto extends PartialType(
-    OmitType(CreateModuleDto, ['sections'] as const),
-) { }
+/**
+ * DTO untuk Update Modul
+ * Menggunakan PartialType agar semua field menjadi opsional,
+ * namun tetap membawa aturan validasi (Regex uploads/) dari parent-nya.
+ */
+export class UpdateModuleDto extends PartialType(CreateModuleDto) { }

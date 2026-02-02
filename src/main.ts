@@ -2,7 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { NestExpressApplication } from '@nestjs/platform-express'; // [REQUIRED] Untuk akses asset statis
+import { NestExpressApplication } from '@nestjs/platform-express';
 import * as express from 'express';
 import { join } from 'path';
 
@@ -15,7 +15,8 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 async function bootstrap() {
   /**
    * 1. Inisialisasi App dengan NestExpressApplication
-   * Diperlukan agar kita bisa menggunakan method .useStaticAssets()
+   * Generics <NestExpressApplication> diperlukan agar kita bisa mengakses
+   * properti spesifik Express jika dibutuhkan di masa depan.
    */
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: WinstonModule.createLogger(winstonConfig),
@@ -24,52 +25,55 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
   /**
-   * 2. STATIC ASSETS CONFIGURATION [NEW]
-   * Menjadikan folder 'uploads' dapat diakses secara publik lewat browser.
-   * Contoh: http://localhost:4000/uploads/filename.jpg
-   */
-  // Serve static uploads under /api/uploads so client can fetch via /api/uploads/:file
-  app.useStaticAssets(join(__dirname, '..', 'uploads'), {
-    prefix: '/api/uploads/',
-  });
-
-  /**
-   * 3. GLOBAL PREFIX
-   * Sinkron dengan konfigurasi Nginx dan Router di Frontend
+   * 2. GLOBAL PREFIX
+   * Semua endpoint akan diawali dengan /api (contoh: /api/auth/login).
+   * Ini memudahkan konfigurasi reverse proxy (Nginx) di production.
    */
   app.setGlobalPrefix('api');
 
-  // 4. Konfigurasi Limit Payload
-  // Kapasitas 50mb memadai untuk upload gambar berkualitas tinggi dari device
+  /**
+   * 3. Infrastructure: Payload Limits
+   * Konfigurasi ini KRUSIAL untuk fitur Upload File.
+   * Kita set 50mb (Safe Buffer) untuk menangani request multipart/form-data
+   * yang berisi gambar, meskipun validasi logika tetap di-limit 2MB di Controller.
+   */
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   /**
-   * 5. Konfigurasi CORS
-   * Menambahkan akses dari domain geocitra dan localhost dev
+   * 4. Konfigurasi CORS (Security)
+   * Daftar origin yang diizinkan untuk mengakses API ini.
    */
   app.enableCors({
     origin: [
-      'http://localhost:3000',           // Frontend Next.js Local
+      'http://localhost:3000',           // Frontend Local
       'https://keuanganku.geocitra.com', // Production Domain
-      'http://localhost:8080',           // Docker/Nginx Proxy Local
+      'http://localhost:8080',           // Docker Internal
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
     allowedHeaders: 'Content-Type, Accept, Authorization',
   });
 
-  // 6. Global Registration (Interceptors, Filters, Pipes)
+  /**
+   * 5. Global Pipes & Interceptors (Quality Assurance)
+   * - LoggingInterceptor: Mencatat setiap request masuk/keluar.
+   * - AllExceptionsFilter: Menstandarisasi format error response.
+   * - ValidationPipe: Memastikan data masuk sesuai DTO (Data Transfer Object).
+   */
   app.useGlobalInterceptors(new LoggingInterceptor());
   app.useGlobalFilters(new AllExceptionsFilter());
 
   app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    transform: true,
-    forbidNonWhitelisted: false,
+    whitelist: true, // Hapus properti yang tidak ada di DTO
+    transform: true, // Otomatis transform tipe data primitive
+    forbidNonWhitelisted: false, // Loose mode untuk development awal
   }));
 
-  // 7. Swagger Documentation
+  /**
+   * 6. Swagger Documentation
+   * Dokumentasi API otomatis yang dapat diakses di /api/docs
+   */
   const config = new DocumentBuilder()
     .setTitle('Keuanganku API')
     .setDescription('API Dokumentasi Portal Belajar & Perencanaan Keuangan PAM Jaya')
@@ -82,12 +86,19 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
-  // 8. Port & Listener
+  /**
+   * 7. Start Server
+   * Note: Static Assets sekarang dilayani oleh ServeStaticModule di app.module.ts
+   * Folder: ./uploads -> URL: /uploads
+   */
   const port = process.env.PORT || 4000;
   await app.listen(port);
 
+  // Path folder uploads untuk keperluan logging debug
+  const uploadPath = join(__dirname, '..', 'uploads');
+
   logger.log(`🚀 Backend Server running on internal port: ${port}`);
-  logger.log(`📂 Static Assets (Uploads) path: ${join(__dirname, '..', 'uploads')}`);
+  logger.log(`📂 Static Assets Directory (Managed by Module): ${uploadPath}`);
   logger.log(`📄 Swagger Docs available at: http://localhost:${port}/api/docs`);
 }
 

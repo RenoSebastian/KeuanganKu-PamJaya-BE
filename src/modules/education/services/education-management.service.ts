@@ -12,17 +12,25 @@ import { UpdateModuleStatusDto } from '../dto/update-module-status.dto';
 import { ReorderSectionsDto } from '../dto/reorder-sections.dto';
 import { UpsertQuizDto } from '../dto/upsert-quiz.dto';
 import { EducationModuleStatus } from '@prisma/client';
+import { MediaStorageService } from '../../media/services/media-storage.service'; // [NEW] Import Service
 import slugify from 'slugify';
 
 @Injectable()
 export class EducationManagementService {
     private readonly logger = new Logger(EducationManagementService.name);
 
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly mediaService: MediaStorageService, // [NEW] Inject Media Service
+    ) { }
 
     // --- CORE CRUD OPERATIONS ---
 
-    async create(dto: CreateModuleDto) {
+    /**
+     * Membuat Modul Baru.
+     * Payload gambar berupa String Path (Relative) yang sudah diupload sebelumnya.
+     */
+    async createModule(userId: string, dto: CreateModuleDto) {
         const { sections, ...moduleData } = dto;
 
         // 1. Validasi Kategori
@@ -56,7 +64,7 @@ export class EducationManagementService {
                         sectionOrder: s.sectionOrder,
                         title: s.title,
                         contentMarkdown: s.contentMarkdown,
-                        illustrationUrl: s.illustrationUrl,
+                        illustrationUrl: s.illustrationUrl, // Menyimpan path relatif
                     }));
                     await tx.moduleSection.createMany({ data: sectionPayload });
                 }
@@ -64,6 +72,7 @@ export class EducationManagementService {
                 return newModule;
             });
 
+            this.logger.log(`Module created: ${result.id} by User ${userId}`);
             return result;
         } catch (error) {
             this.logger.error(`Failed to create education module: ${error.message}`);
@@ -71,25 +80,59 @@ export class EducationManagementService {
         }
     }
 
-    async update(id: string, dto: UpdateModuleDto) {
-        // 1. Cek Eksistensi
-        const existing = await this.prisma.educationModule.findUnique({ where: { id } });
-        if (!existing) throw new NotFoundException('Module not found');
+    /**
+     * Update Modul dengan mekanisme "Smart Garbage Collection" untuk file lama.
+     */
+    async updateModule(moduleId: string, dto: UpdateModuleDto) {
+        // 1. Ambil data lama untuk perbandingan (Snapshot State Lama)
+        const oldModule = await this.prisma.educationModule.findUnique({
+            where: { id: moduleId },
+            include: { sections: true },
+        });
 
-        // 2. Handle Slug Update jika Title berubah
-        let newSlug: string | undefined;
-        if (dto.title && dto.title !== existing.title) {
-            newSlug = await this.generateUniqueSlug(dto.title);
+        if (!oldModule) {
+            throw new NotFoundException(`Module with ID ${moduleId} not found`);
         }
 
-        // 3. Update DB
-        return this.prisma.educationModule.update({
-            where: { id },
-            data: {
-                ...dto,
-                slug: newSlug,
-            },
-        });
+        // 2. Lakukan Update Database terlebih dahulu (Optimistic)
+        let updatedModule;
+        try {
+            updatedModule = await this.prisma.$transaction(async (tx) => {
+                // Handle Slug Update jika Title berubah
+                let newSlug = oldModule.slug;
+                if (dto.title && dto.title !== oldModule.title) {
+                    newSlug = await this.generateUniqueSlug(dto.title);
+                }
+
+                // Update Header Only
+                // Note: Update Sections logic biasanya terpisah atau butuh nested upsert kompleks.
+                // Di sini kita fokus update properti modul utama.
+                return tx.educationModule.update({
+                    where: { id: moduleId },
+                    data: {
+                        title: dto.title,
+                        slug: newSlug,
+                        categoryId: dto.categoryId,
+                        thumbnailUrl: dto.thumbnailUrl,
+                        excerpt: dto.excerpt,
+                        readingTime: dto.readingTime,
+                    },
+                });
+            });
+        } catch (error) {
+            this.logger.error(`Update failed for module ${moduleId}: ${error.message}`);
+            throw new InternalServerErrorException('Database update failed.');
+        }
+
+        // 3. [GARBAGE COLLECTION] Hapus File Lama (Async Post-Action)
+        // Hanya dijalankan jika transaksi DB sukses & path gambar berubah.
+        if (dto.thumbnailUrl && oldModule.thumbnailUrl !== dto.thumbnailUrl) {
+            this.logger.log(`Thumbnail changed for module ${moduleId}. Pruning old file...`);
+            // Jangan await, biarkan berjalan di background agar respon API cepat
+            this.mediaService.deleteFile(oldModule.thumbnailUrl);
+        }
+
+        return updatedModule;
     }
 
     async updateStatus(id: string, dto: UpdateModuleStatusDto) {
@@ -97,7 +140,7 @@ export class EducationManagementService {
             where: { id },
             include: {
                 sections: true,
-                quiz: { include: { questions: true } }, // Cek keberadaan quiz
+                quiz: { include: { questions: true } },
             },
         });
 
@@ -105,18 +148,16 @@ export class EducationManagementService {
 
         // --- LOGIC GUARDRAILS: PUBLISH SAFETY CHECK ---
         if (dto.status === EducationModuleStatus.PUBLISHED) {
-            // 1. Check Content Existence
             if (!module.sections || module.sections.length === 0) {
                 throw new BadRequestException(
                     'Cannot PUBLISH a module with no sections (Empty Content). Please add content first.',
                 );
             }
 
-            // 2. Check Quiz Integrity (Jika ada Quiz, wajib ada soal)
             if (module.quiz) {
                 if (!module.quiz.questions || module.quiz.questions.length === 0) {
                     throw new BadRequestException(
-                        'Cannot PUBLISH. This module has a Quiz enabled but contains NO questions. Please add questions or remove the quiz.',
+                        'Cannot PUBLISH. This module has a Quiz enabled but contains NO questions.',
                     );
                 }
             }
@@ -132,25 +173,64 @@ export class EducationManagementService {
         });
     }
 
-    async delete(id: string) {
-        const module = await this.prisma.educationModule.findUnique({ where: { id } });
-        if (!module) throw new NotFoundException('Module not found');
-
-        // Hard Delete: Karena Cascade delete aktif di Schema, sections & quiz otomatis terhapus.
-        return this.prisma.educationModule.delete({
-            where: { id },
+    /**
+     * Menghapus Modul dan SEMUA aset file terkait (Cascade Cleanup).
+     */
+    async deleteModule(moduleId: string) {
+        // 1. Ambil data sebelum dihapus untuk mendapatkan daftar file
+        const moduleToDelete = await this.prisma.educationModule.findUnique({
+            where: { id: moduleId },
+            include: { sections: true },
         });
+
+        if (!moduleToDelete) {
+            throw new NotFoundException('Modul tidak ditemukan');
+        }
+
+        // 2. Hapus Record Database (Cascade Delete akan menghapus sections & progress)
+        try {
+            await this.prisma.educationModule.delete({
+                where: { id: moduleId },
+            });
+        } catch (error) {
+            this.logger.error(`Delete failed DB: ${error.message}`);
+            throw new InternalServerErrorException('Gagal menghapus data modul.');
+        }
+
+        // 3. [CLEANUP] Hapus Fisik File
+        const filesToDelete: string[] = [];
+
+        // Kumpulkan Cover Image
+        if (moduleToDelete.thumbnailUrl) {
+            filesToDelete.push(moduleToDelete.thumbnailUrl);
+        }
+
+        // Kumpulkan Ilustrasi setiap section
+        if (moduleToDelete.sections) {
+            moduleToDelete.sections.forEach((sec) => {
+                if (sec.illustrationUrl) filesToDelete.push(sec.illustrationUrl);
+            });
+        }
+
+        // Eksekusi Hapus Masal
+        if (filesToDelete.length > 0) {
+            this.logger.log(`Deleting ${filesToDelete.length} assets for module ${moduleId}`);
+            // Gunakan Promise.all untuk paralel execution (Efisiensi I/O)
+            // Error pada satu file tidak boleh menghentikan proses yang lain
+            await Promise.allSettled(filesToDelete.map((path) => this.mediaService.deleteFile(path)));
+        }
+
+        return { message: 'Modul dan aset berhasil dihapus' };
     }
 
     async reorderSections(moduleId: string, dto: ReorderSectionsDto) {
         const module = await this.prisma.educationModule.findUnique({ where: { id: moduleId } });
         if (!module) throw new NotFoundException('Module not found');
 
-        // Transactional Reorder
         return this.prisma.$transaction(
             dto.items.map((item) =>
                 this.prisma.moduleSection.update({
-                    where: { id: item.sectionId, moduleId }, // Safety Check: Pastikan section milik module ini
+                    where: { id: item.sectionId, moduleId },
                     data: { sectionOrder: item.newOrder },
                 }),
             ),
@@ -164,26 +244,21 @@ export class EducationManagementService {
         const module = await this.prisma.educationModule.findUnique({ where: { id: moduleId } });
         if (!module) throw new NotFoundException('Module not found');
 
-        // 2. LOGIC GUARDRAILS (Validation Before Transaction)
-
-        // Rule A: Ghost Quiz Prevention
+        // 2. Logic Guardrails
         if (!dto.questions || dto.questions.length === 0) {
             throw new BadRequestException('A quiz must contain at least one question.');
         }
 
         dto.questions.forEach((q, index) => {
-            // Rule B: Min Options
             if (!q.options || q.options.length < 2) {
                 throw new BadRequestException(
-                    `Question #${index + 1} ("${q.questionText.substring(0, 20)}...") must have at least 2 options.`,
+                    `Question #${index + 1} must have at least 2 options.`,
                 );
             }
-
-            // Rule C: Single Truth (Must have exactly one correct answer)
             const correctOptions = q.options.filter((opt) => opt.isCorrect);
             if (correctOptions.length !== 1) {
                 throw new BadRequestException(
-                    `Question #${index + 1} must have EXACTLY ONE correct option. Found: ${correctOptions.length}.`,
+                    `Question #${index + 1} must have EXACTLY ONE correct option.`,
                 );
             }
         });
@@ -191,8 +266,7 @@ export class EducationManagementService {
         // 3. Transactional Replacement
         try {
             return await this.prisma.$transaction(async (tx) => {
-                // A. Upsert Quiz Header (Create if not exists, Update if exists)
-                // Kita gunakan upsert agar ID quiz tetap persisten jika sudah ada
+                // A. Upsert Quiz Header
                 const quiz = await tx.quiz.upsert({
                     where: { moduleId },
                     create: {
@@ -210,14 +284,12 @@ export class EducationManagementService {
                     },
                 });
 
-                // B. Wipe Clean: Delete Existing Questions (Cascade deletes options)
-                // Ini lebih aman daripada diffing. Kita hapus semua soal lama milik quiz ini.
+                // B. Wipe Clean Questions
                 await tx.quizQuestion.deleteMany({
                     where: { quizId: quiz.id },
                 });
 
-                // C. Bulk Insert New Questions & Options
-                // Kita loop karena Prisma createMany belum support nested writes (options)
+                // C. Bulk Insert New Questions
                 for (const q of dto.questions) {
                     await tx.quizQuestion.create({
                         data: {
@@ -238,7 +310,6 @@ export class EducationManagementService {
                     });
                 }
 
-                // Return full structure for confirmation
                 return await tx.quiz.findUnique({
                     where: { id: quiz.id },
                     include: {
@@ -250,9 +321,7 @@ export class EducationManagementService {
                 });
             });
         } catch (error) {
-            // Re-throw validation errors directly
             if (error instanceof BadRequestException) throw error;
-
             this.logger.error(`Failed to upsert quiz: ${error.message}`);
             throw new InternalServerErrorException('Transaction failed while saving quiz data.');
         }
@@ -266,7 +335,6 @@ export class EducationManagementService {
         let counter = 1;
         let isUnique = false;
 
-        // Loop check keberadaan slug
         while (!isUnique) {
             const existing = await this.prisma.educationModule.findUnique({
                 where: { slug },

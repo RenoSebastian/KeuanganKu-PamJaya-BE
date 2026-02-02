@@ -3,8 +3,8 @@ import {
     InternalServerErrorException,
     Logger,
     BadRequestException,
-    NotFoundException,
     UnauthorizedException,
+    NotFoundException,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -12,6 +12,8 @@ import { DatabaseStatsResponseDto, TableStatItemDto } from './dto/database-stats
 import { PruneExecutionDto } from './dto/prune-execution.dto';
 import { RetentionStrategyFactory } from './strategies/retention-strategy.factory';
 import { RetentionEntityType } from './dto/export-query.dto';
+import { MediaStorageService } from '../../media/services/media-storage.service'; // [NEW] Import Media Service
+import { EducationCleanupStrategy } from './strategies/education-cleanup.strategy'; // [NEW] Import Strategy Langsung
 
 @Injectable()
 export class RetentionService {
@@ -21,6 +23,7 @@ export class RetentionService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly strategyFactory: RetentionStrategyFactory,
+        private readonly mediaService: MediaStorageService, // [NEW] Inject Media Service
     ) { }
 
     // --- FASE 1: MONITORING ---
@@ -152,17 +155,30 @@ export class RetentionService {
 
         // 2. Strategy Execution
         try {
-            const strategy = this.strategyFactory.getStrategy(entityType);
-            const tableName = this.getTableName(entityType);
+            let result: PruneExecutionDto;
+            let tableName = this.getTableName(entityType);
 
-            // Execute Strategy
-            const result = await strategy.execute(cutoff, false, tableName);
+            // [LOGIC CHANGE] Hybrid Strategy Selection
+            if (entityType === 'EDUCATION_CLEANUP') {
+                // Khusus Education: Pakai strategi baru yang support File Cleanup (Manual Injection)
+                this.logger.log('Switching to EducationCleanupStrategy (Media Aware)...');
+                const eduStrategy = new EducationCleanupStrategy(this.prisma, this.mediaService);
 
-            if (result.status === 'FAILED') {
-                throw new InternalServerErrorException('Strategy execution reported failure.');
+                // Panggil method baru 'pruneData' yang kita buat di Fase 4
+                result = await eduStrategy.pruneData(cutoff);
+            } else {
+                // Default: Strategy Factory (Historical/Snapshot) untuk data finansial
+                const strategy = this.strategyFactory.getStrategy(entityType);
+
+                // Adaptasi panggilan method 'execute' (Interface Lama)
+                result = await strategy.execute(cutoff, false, tableName);
             }
 
-            const deletedCount = result.recordsToPrune || 0;
+            if (result.status === 'FAILED') {
+                throw new InternalServerErrorException(result.message || 'Strategy execution reported failure.');
+            }
+
+            const deletedCount = result.recordsDeleted ?? result.recordsToPrune ?? 0;
 
             // 3. Audit Logging
             await this.prisma.retentionLog.create({
@@ -178,13 +194,14 @@ export class RetentionService {
                         requestedAt: new Date(),
                         secure_mode: true,
                         token_verified: true,
+                        message: result.message, // Simpan detail pesan (misal: "Pruned X files")
                     },
                 },
             });
 
             return {
                 deletedCount,
-                message: `SECURE PRUNE SUCCESS: ${deletedCount} data ${entityType} berhasil dihapus permanen.`,
+                message: result.message || `SECURE PRUNE SUCCESS: ${deletedCount} data ${entityType} berhasil dihapus permanen.`,
             };
 
         } catch (error) {
