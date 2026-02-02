@@ -6,7 +6,7 @@ import {
     UploadedFile,
     ParseFilePipe,
     MaxFileSizeValidator,
-    FileTypeValidator,
+    BadRequestException,
     HttpStatus,
     HttpCode,
 } from '@nestjs/common';
@@ -37,6 +37,7 @@ export class MediaController {
                 file: {
                     type: 'string',
                     format: 'binary',
+                    description: 'File gambar untuk thumbnail atau ilustrasi modul',
                 },
             },
         },
@@ -46,34 +47,37 @@ export class MediaController {
         @UploadedFile(
             new ParseFilePipe({
                 validators: [
-                    // 1. Size Validation: Max 2MB
+                    // 1. Size Validation: Max 2MB sesuai kebijakan efisiensi penyimpanan
                     new MaxFileSizeValidator({
                         maxSize: 2 * 1024 * 1024,
-                        message: 'File terlalu besar. Maksimal 2MB.'
-                    }),
-
-                    /**
-                     * [LOGICAL FIX - V2] 
-                     * Menggunakan string pattern 'image/*' untuk fleksibilitas maksimal 
-                     * atau daftar eksplisit tanpa escape character yang membingungkan validator.
-                     * NestJS FileTypeValidator akan mencocokkan substring ini pada MIME Type.
-                     */
-                    new FileTypeValidator({
-                        fileType: '.(png|jpeg|jpg|webp)'
+                        message: 'Ukuran file terlalu besar. Maksimal adalah 2MB.'
                     }),
                 ],
-                // Mengatur agar error yang muncul lebih informatif jika validasi gagal
                 errorHttpStatusCode: HttpStatus.BAD_REQUEST
             }),
         )
         file: Express.Multer.File,
     ) {
-        // [CHECKPOINT] Pastikan file terdeteksi sebelum masuk ke service
+        // Additional runtime validation (MIME + extension) to avoid ParseFilePipe mismatches
+        const allowedMimes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+        const allowedExt = /\.(png|jpe?g|webp)$/i;
+
+        if (!file) {
+            throw new BadRequestException('No file provided');
+        }
+
+        if (!allowedMimes.includes(file.mimetype) && !allowedExt.test(file.originalname)) {
+            throw new BadRequestException(
+                `Validation failed (current file type is ${file.mimetype}, expected image/png|image/jpeg|image/jpg|image/webp)`
+            );
+        }
+
+        // Eksekusi penyimpanan fisik ke disk via service
         const result = await this.mediaService.uploadFile(file);
 
         return {
             message: 'File uploaded successfully',
-            ...result
+            ...result // Mengembalikan data url: 'uploads/uuid.jpg', filename, dll.
         };
     }
 }

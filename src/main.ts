@@ -28,8 +28,9 @@ async function bootstrap() {
    * Menjadikan folder 'uploads' dapat diakses secara publik lewat browser.
    * Contoh: http://localhost:4000/uploads/filename.jpg
    */
+  // Serve static uploads under /api/uploads so client can fetch via /api/uploads/:file
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {
-    prefix: '/uploads/',
+    prefix: '/api/uploads/',
   });
 
   /**

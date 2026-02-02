@@ -41,7 +41,8 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
      */
     ServeStaticModule.forRoot({
       rootPath: path.join(__dirname, '..', 'uploads'),
-      serveRoot: '/uploads',
+      // Serve static uploads under /api/uploads to match global API prefix
+      serveRoot: '/api/uploads',
     }),
 
     // 3. Core Database Module
