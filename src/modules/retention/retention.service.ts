@@ -12,8 +12,8 @@ import { DatabaseStatsResponseDto, TableStatItemDto } from './dto/database-stats
 import { PruneExecutionDto } from './dto/prune-execution.dto';
 import { RetentionStrategyFactory } from './strategies/retention-strategy.factory';
 import { RetentionEntityType } from './dto/export-query.dto';
-import { MediaStorageService } from '../../media/services/media-storage.service'; // [NEW] Import Media Service
-import { EducationCleanupStrategy } from './strategies/education-cleanup.strategy'; // [NEW] Import Strategy Langsung
+import { MediaStorageService } from '../media/services/media-storage.service';
+import { EducationCleanupStrategy } from './strategies/education-cleanup.strategy';
 
 @Injectable()
 export class RetentionService {
@@ -23,7 +23,7 @@ export class RetentionService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly strategyFactory: RetentionStrategyFactory,
-        private readonly mediaService: MediaStorageService, // [NEW] Inject Media Service
+        private readonly mediaService: MediaStorageService,
     ) { }
 
     // --- FASE 1: MONITORING ---
@@ -160,17 +160,15 @@ export class RetentionService {
 
             // [LOGIC CHANGE] Hybrid Strategy Selection
             if (entityType === 'EDUCATION_CLEANUP') {
-                // Khusus Education: Pakai strategi baru yang support File Cleanup (Manual Injection)
                 this.logger.log('Switching to EducationCleanupStrategy (Media Aware)...');
                 const eduStrategy = new EducationCleanupStrategy(this.prisma, this.mediaService);
 
-                // Panggil method baru 'pruneData' yang kita buat di Fase 4
-                result = await eduStrategy.pruneData(cutoff);
+                // [FIX] Menggunakan method 'execute' agar sesuai dengan Interface & Implementation
+                // Parameter kedua (isDryRun) default false untuk mode eksekusi real
+                result = await eduStrategy.execute(cutoff);
             } else {
                 // Default: Strategy Factory (Historical/Snapshot) untuk data finansial
                 const strategy = this.strategyFactory.getStrategy(entityType);
-
-                // Adaptasi panggilan method 'execute' (Interface Lama)
                 result = await strategy.execute(cutoff, false, tableName);
             }
 
@@ -194,7 +192,7 @@ export class RetentionService {
                         requestedAt: new Date(),
                         secure_mode: true,
                         token_verified: true,
-                        message: result.message, // Simpan detail pesan (misal: "Pruned X files")
+                        message: result.message,
                     },
                 },
             });

@@ -39,7 +39,7 @@ export class PruneExecutionDto {
 
     // =========================================================
     // OUTPUT FIELDS (Result from Strategy Implementation)
-    // [FIX] Menambahkan properti ini untuk mengatasi Error TypeScript 2353
+    // [FIX] Updated Contract: Menambahkan field message & recordsDeleted
     // =========================================================
 
     @ApiProperty({ description: 'Nama strategi yang dieksekusi', required: false })
@@ -52,15 +52,25 @@ export class PruneExecutionDto {
     @IsOptional()
     targetTable?: string;
 
-    @ApiProperty({ description: 'Jumlah data yang dihapus/akan dihapus', required: false })
+    @ApiProperty({ description: 'Jumlah data yang sukses dihapus permanen', required: false })
     @Expose()
     @IsOptional()
-    recordsToPrune?: number;
+    recordsDeleted?: number; // [NEW] Field standar untuk hasil eksekusi delete
+
+    @ApiProperty({ description: 'Estimasi jumlah data yang akan dihapus (Mode Dry Run)', required: false })
+    @Expose()
+    @IsOptional()
+    recordsToPrune?: number; // [LEGACY] Tetap disimpan untuk backward compatibility strategi lama
 
     @ApiProperty({ description: 'Status eksekusi', required: false })
     @Expose()
     @IsOptional()
     status?: 'SUCCESS' | 'FAILED' | 'DRY_RUN';
+
+    @ApiProperty({ description: 'Pesan detail hasil eksekusi (Success/Error message)', required: false })
+    @Expose()
+    @IsOptional()
+    message?: string; // [NEW] Field kritikal untuk logging pesan error/sukses dari Strategy
 
     @ApiProperty({ description: 'Waktu eksekusi', required: false })
     @Expose()

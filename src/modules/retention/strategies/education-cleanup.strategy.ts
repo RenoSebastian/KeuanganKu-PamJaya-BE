@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { MediaStorageService } from '/../../../../media/services/media-storage.service';
+// [FIX] Perbaikan Path Relative Import (Naik 2 level ke src/modules -> masuk media)
+import { MediaStorageService } from '../../media/services/media-storage.service';
 import { PruneExecutionDto } from '../dto/prune-execution.dto';
 import { EducationModuleStatus } from '@prisma/client';
 import { RetentionStrategy } from '../interfaces/retention-strategy.interface';
@@ -11,24 +12,23 @@ export class EducationCleanupStrategy implements RetentionStrategy {
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly mediaService: MediaStorageService, // [DEPENDENCY] Injeksi Media Service
+        private readonly mediaService: MediaStorageService,
     ) { }
 
     /**
-     * Strategi Retensi Cerdas (Hybrid):
-     * 1. Cari kandidat modul:
-     * - ARCHIVED & lebih tua dari cutoffDate (Default: 1 tahun).
-     * - DRAFT & tidak diupdate > 90 hari (Stale Drafts).
-     * 2. FILTER: Jangan hapus modul yang memiliki data progress user (KPI Protection).
-     * 3. EKSEKUSI: Hapus DB Record -> Hapus File Fisik.
+     * [INTERFACE COMPLIANCE] Method utama wajib bernama 'execute'.
+     * Menangani logika penghapusan modul pendidikan dan aset media terkait.
      */
-    async pruneData(cutoffDate: Date): Promise<PruneExecutionDto> {
-        this.logger.log(`Executing Education Retention Strategy with cutoff: ${cutoffDate.toISOString()}`);
+    async execute(cutoffDate: Date, isDryRun: boolean = false): Promise<PruneExecutionDto> {
+        this.logger.log(`Executing Education Retention Strategy (DryRun: ${isDryRun}) with cutoff: ${cutoffDate.toISOString()}`);
 
         const result = new PruneExecutionDto();
         result.entityType = 'EDUCATION_MODULE';
         result.executedAt = new Date();
         result.cutoffDate = cutoffDate.toISOString();
+        result.strategyName = 'EducationCleanupStrategy';
+        // Token placeholder untuk output
+        result.pruneToken = isDryRun ? 'DRY_RUN_MODE' : 'EXECUTED';
 
         try {
             // 1. Identifikasi Semua Kandidat (Archived Old OR Stale Drafts)
@@ -87,6 +87,15 @@ export class EducationCleanupStrategy implements RetentionStrategy {
                 this.logger.warn(`[SAFEGUARD] Skipped ${skippedCount} modules because they contain User KPI data.`);
             }
 
+            // --- DRY RUN EXIT ---
+            if (isDryRun) {
+                result.recordsDeleted = 0;
+                result.recordsToPrune = safeToDeleteIds.length; // Info estimasi
+                result.status = 'DRY_RUN';
+                result.message = `[DRY RUN] Found ${safeToDeleteIds.length} modules to prune. Skipped ${skippedCount} protected modules.`;
+                return result;
+            }
+
             if (safeToDeleteIds.length === 0) {
                 result.recordsDeleted = 0;
                 result.status = 'SUCCESS';
@@ -124,7 +133,6 @@ export class EducationCleanupStrategy implements RetentionStrategy {
             }
 
             // Eksekusi penghapusan file secara paralel & aman (Promise.allSettled)
-            // Kita tidak ingin error pada satu file menghentikan proses cleanup lainnya
             if (filesToDelete.length > 0) {
                 this.logger.log(`Pruning ${filesToDelete.length} physical assets associated with deleted modules...`);
 
