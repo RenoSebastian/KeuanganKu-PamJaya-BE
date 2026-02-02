@@ -289,7 +289,7 @@ Seberapa produktif uang Anda bekerja?
         order: 3,
         status: EducationModuleStatus.PUBLISHED,
         publishedAt: new Date(),
-        coverImage: 'https://images.unsplash.com/photo-1532619187608-e5375cabadaf?auto=format&fit=crop&q=80&w=1000',
+        coverImage: 'https://images.unsplash.com/photo-1554224155-6726b3ff858f?auto=format&fit=crop&q=80&w=1000',
         durationMinutes: 15,
         sections: [
             {
