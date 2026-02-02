@@ -8,10 +8,14 @@ import { v4 as uuidv4 } from 'uuid';
 export class MediaStorageService {
     private readonly logger = new Logger(MediaStorageService.name);
 
-    // Konfigurasi lokasi upload (Local Storage Strategy)
-    // Di masa depan, ini bisa diganti menjadi bucket name S3
-    private readonly UPLOAD_DIR = './public/uploads';
-    private readonly URL_PREFIX = '/uploads';
+    /**
+     * [LOGICAL FIX] Penyesuaian Jalur Folder
+     * Kita gunakan './uploads' (root) agar sinkron dengan:
+     * 1. main.ts -> app.useStaticAssets
+     * 2. app.module.ts -> ServeStaticModule
+     */
+    private readonly UPLOAD_DIR = './uploads';
+    private readonly URL_PREFIX = 'uploads'; // Hilangkan '/' di depan untuk konsistensi DB
 
     constructor(private readonly configService: ConfigService) {
         this.ensureUploadDirectoryExists();
@@ -19,60 +23,67 @@ export class MediaStorageService {
 
     /**
      * Core Method: Upload File
-     * Menerapkan Adapter Pattern sederhana. 
-     * Input: Binary File -> Output: Public URL String
+     * Mengubah Binary Buffer menjadi Path String yang tersimpan di DB.
      */
     async uploadFile(file: Express.Multer.File): Promise<{ url: string; filename: string; mimeType: string }> {
         try {
-            // 1. Generate Safe Filename (UUID + Extension)
+            // 1. Generate Safe Filename (UUID + Original Extension)
+            // Menghindari bentrok nama file dan karakter ilegal dari user
             const fileExt = path.extname(file.originalname).toLowerCase();
             const filename = `${uuidv4()}${fileExt}`;
             const filePath = path.join(this.UPLOAD_DIR, filename);
 
-            // 2. Write File to Disk (Local Strategy)
-            // Note: Jika pindah ke S3, ganti blok kode ini dengan s3.upload()
+            // 2. Write File to Disk
+            // Menggunakan fs.promises agar tidak blocking event loop (Asynchronous)
             await fs.promises.writeFile(filePath, file.buffer);
 
-            // 3. Construct Public URL
-            // Kita return relative path agar FE bisa append Base URL sendiri, 
-            // atau dilayani langsung oleh Nginx/ServeStatic
-            const publicUrl = `${this.URL_PREFIX}/${filename}`;
+            // 3. Construct URL untuk Database
+            // Hasilnya: "uploads/uuid-name.jpg"
+            const dbPath = `${this.URL_PREFIX}/${filename}`;
 
-            this.logger.log(`File uploaded successfully: ${filename}`);
+            this.logger.log(`File persisted to disk: ${filename}`);
 
             return {
-                url: publicUrl,
+                url: dbPath,
                 filename: filename,
                 mimeType: file.mimetype,
             };
         } catch (error) {
-            this.logger.error(`Failed to upload file: ${error.message}`);
-            throw new InternalServerErrorException('Could not save file to storage.');
+            this.logger.error(`Failed to write file to storage: ${error.message}`);
+            throw new InternalServerErrorException('Gagal menyimpan file ke media storage.');
         }
     }
 
     /**
      * Utility: Delete File
-     * Penting untuk cleanup jika data di database dihapus (Optional implementation for now)
+     * Digunakan saat menghapus Modul atau mengganti gambar agar tidak jadi 'zombie file'
      */
     async deleteFile(filename: string): Promise<void> {
         try {
-            const filePath = path.join(this.UPLOAD_DIR, filename);
+            // Pastikan kita hanya mengambil nama filenya saja, bukan full path
+            const pureFilename = path.basename(filename);
+            const filePath = path.join(this.UPLOAD_DIR, pureFilename);
+
             if (fs.existsSync(filePath)) {
                 await fs.promises.unlink(filePath);
+                this.logger.log(`File deleted: ${pureFilename}`);
             }
         } catch (error) {
-            this.logger.warn(`Failed to delete file ${filename}: ${error.message}`);
-            // Kita suppress error delete agar tidak mengganggu flow bisnis utama
+            this.logger.warn(`Cleanup failed for ${filename}: ${error.message}`);
         }
     }
 
     // --- INTERNAL HELPERS ---
 
+    /**
+     * Memastikan folder tujuan ada saat aplikasi startup.
+     * Mencegah 'Error: ENOENT: no such file or directory' saat upload pertama kali.
+     */
     private ensureUploadDirectoryExists() {
-        if (!fs.existsSync(this.UPLOAD_DIR)) {
-            fs.mkdirSync(this.UPLOAD_DIR, { recursive: true });
-            this.logger.log(`Created upload directory at: ${this.UPLOAD_DIR}`);
+        const fullPath = path.resolve(this.UPLOAD_DIR);
+        if (!fs.existsSync(fullPath)) {
+            fs.mkdirSync(fullPath, { recursive: true });
+            this.logger.log(`Infrastructure Ready. Upload directory created at: ${fullPath}`);
         }
     }
 }

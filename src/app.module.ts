@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { WinstonModule } from 'nest-winston';
-import { ServeStaticModule } from '@nestjs/serve-static'; // [NEW] Import
+import { ServeStaticModule } from '@nestjs/serve-static';
 import * as path from 'path';
 
 // --- Logging & Config ---
@@ -21,29 +21,33 @@ import { SearchModule } from './modules/search/search.module';
 import { MasterDataModule } from './modules/master-data/master-data.module';
 import { RetentionModule } from './modules/retention/retention.module';
 import { EducationModule } from './modules/education/education.module';
-import { MediaModule } from './modules/media/media.module'; // [NEW] Import
+import { MediaModule } from './modules/media/media.module';
 
 // --- Interceptors ---
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 
 @Module({
   imports: [
+    // 1. Global Configurations
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
     WinstonModule.forRoot(winstonConfig),
 
-    // [NEW] Serve Static Files (Public Folder)
-    // Ini membuat folder './public' bisa diakses di root URL.
-    // Contoh: file './public/uploads/img.jpg' -> 'http://localhost:3000/uploads/img.jpg'
+    /**
+     * 2. SERVE STATIC FILES configuration
+     * [LOGICAL FIX]: Kita arahkan ke folder './uploads' agar sinkron dengan 
+     * MediaStorageService. Dengan 'serveRoot: /uploads', file di 
+     * folder './uploads/abc.jpg' akan diakses via 'http://domain.com/uploads/abc.jpg'
+     */
     ServeStaticModule.forRoot({
-      rootPath: path.join(__dirname, '..', 'public'), // Mundur 1 step dari /dist/src ke /public
-      serveRoot: '/',
+      rootPath: path.join(__dirname, '..', 'uploads'),
+      serveRoot: '/uploads',
     }),
 
-    // Core Database Module
+    // 3. Core Database Module
     PrismaModule,
 
-    // Feature Modules
+    // 4. Feature Modules
     AuthModule,
     UsersModule,
     FinancialModule,
@@ -54,7 +58,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     MasterDataModule,
     RetentionModule,
     EducationModule,
-    MediaModule, // [NEW] Registration
+    MediaModule, // Handled POST /api/media/upload
   ],
   controllers: [],
   providers: [

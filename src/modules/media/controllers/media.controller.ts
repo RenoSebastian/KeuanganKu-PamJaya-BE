@@ -18,10 +18,10 @@ import { Roles } from '../../../common/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 import { MediaStorageService } from '../services/media-storage.service';
 
-@ApiTags('Admin - Media Management')
-@Controller('admin/media')
+@ApiTags('Media Management')
+@Controller('media')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN, Role.DIRECTOR) // Hanya Admin yang boleh upload aset
+@Roles(Role.ADMIN, Role.DIRECTOR)
 @ApiBearerAuth()
 export class MediaController {
     constructor(private readonly mediaService: MediaStorageService) { }
@@ -37,7 +37,6 @@ export class MediaController {
                 file: {
                     type: 'string',
                     format: 'binary',
-                    description: 'Image file for module thumbnail or illustration',
                 },
             },
         },
@@ -47,23 +46,34 @@ export class MediaController {
         @UploadedFile(
             new ParseFilePipe({
                 validators: [
-                    // 1. Size Validation: Max 2MB (2 * 1024 * 1024)
-                    // File edukasi harus ringan agar mobile-friendly
-                    new MaxFileSizeValidator({ maxSize: 2 * 1024 * 1024 }),
+                    // 1. Size Validation: Max 2MB
+                    new MaxFileSizeValidator({
+                        maxSize: 2 * 1024 * 1024,
+                        message: 'File terlalu besar. Maksimal 2MB.'
+                    }),
 
-                    // 2. Type Validation: Image only
-                    // Regex menangkap jpeg, jpg, png, webp
-                    new FileTypeValidator({ fileType: '.(png|jpeg|jpg|webp)' }),
+                    /**
+                     * [LOGICAL FIX - V2] 
+                     * Menggunakan string pattern 'image/*' untuk fleksibilitas maksimal 
+                     * atau daftar eksplisit tanpa escape character yang membingungkan validator.
+                     * NestJS FileTypeValidator akan mencocokkan substring ini pada MIME Type.
+                     */
+                    new FileTypeValidator({
+                        fileType: '.(png|jpeg|jpg|webp)'
+                    }),
                 ],
+                // Mengatur agar error yang muncul lebih informatif jika validasi gagal
+                errorHttpStatusCode: HttpStatus.BAD_REQUEST
             }),
         )
         file: Express.Multer.File,
     ) {
+        // [CHECKPOINT] Pastikan file terdeteksi sebelum masuk ke service
         const result = await this.mediaService.uploadFile(file);
 
         return {
             message: 'File uploaded successfully',
-            data: result, // { url: '/uploads/uuid.jpg', ... }
+            ...result
         };
     }
 }

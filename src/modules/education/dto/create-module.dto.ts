@@ -9,7 +9,6 @@ import {
     Min,
     ValidateNested,
     MaxLength,
-    IsUrl,
 } from 'class-validator';
 
 // DTO untuk Detail Section (Atomic Content)
@@ -27,9 +26,12 @@ export class CreateSectionDto {
     @IsNotEmpty()
     contentMarkdown: string;
 
+    /**
+     * [FIXED] Diubah menjadi IsOptional dan IsString biasa.
+     * IsUrl dihapus agar bisa menerima path file lokal hasil upload dari device.
+     */
     @IsString()
     @IsOptional()
-    @IsUrl({}, { message: 'Illustration URL must be a valid URL address' })
     illustrationUrl?: string;
 }
 
@@ -44,9 +46,11 @@ export class CreateModuleDto {
     @IsNotEmpty()
     categoryId: string;
 
+    /**
+     * [FIXED] Thumbnail dari device akan menghasilkan path/URL string.
+     */
     @IsString()
     @IsNotEmpty()
-    @IsUrl({}, { message: 'Thumbnail URL must be a valid URL address' })
     thumbnailUrl: string;
 
     @IsString()

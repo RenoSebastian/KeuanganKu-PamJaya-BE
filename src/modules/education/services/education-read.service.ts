@@ -127,6 +127,41 @@ export class EducationReadService {
         return categories.map((c) => new CategorySerializer(c));
     }
 
+    /**
+     * [FIXED/ADDED] UPDATE PROGRESS
+     * Menangani sinkronisasi progress membaca antara Frontend & Backend.
+     */
+    async updateProgress(
+        userId: string,
+        moduleId: string,
+        dto: { status?: EducationProgressStatus; lastSectionId?: string }
+    ) {
+        // Gunakan upsert agar record otomatis dibuat jika user baru pertama kali membuka modul
+        return this.prisma.userEducationProgress.upsert({
+            where: {
+                userId_moduleId: {
+                    userId,
+                    moduleId,
+                },
+            },
+            update: {
+                ...(dto.status && { status: dto.status }),
+                ...(dto.lastSectionId && { lastReadSectionId: dto.lastSectionId }),
+                // Jika status diubah menjadi COMPLETED, catat waktu selesainya
+                ...(dto.status === EducationProgressStatus.COMPLETED && {
+                    completedAt: new Date()
+                }),
+            },
+            create: {
+                userId,
+                moduleId,
+                status: dto.status || EducationProgressStatus.STARTED,
+                lastReadSectionId: dto.lastSectionId,
+                startedAt: new Date(),
+            },
+        });
+    }
+
     // --- 4. ANTI-CHEAT QUIZ TIMER ---
     async markQuizStart(userId: string, moduleId: string) {
         const existingProgress =

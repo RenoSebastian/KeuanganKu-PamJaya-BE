@@ -11,7 +11,7 @@ import {
     NotFoundException,
     HttpStatus
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags, ApiQuery, ApiResponse } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags, ApiQuery, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { EducationReadService } from '../services/education-read.service';
 import { QuizEngineService } from '../services/quiz-engine.service';
 import { SubmitQuizDto } from '../dto/submit-quiz.dto';
@@ -39,6 +39,7 @@ export class PublicEducationController {
     @Get('modules')
     @ApiOperation({ summary: 'Browse learning modules (Paginated & Filtered)' })
     @ApiQuery({ name: 'page', required: false, type: Number })
+    @ApiQuery({ name: 'limit', required: false, type: Number })
     @ApiQuery({ name: 'category', required: false, type: String })
     findAll(
         @GetUser('id') userId: string,
@@ -57,6 +58,29 @@ export class PublicEducationController {
     @ApiOperation({ summary: 'Read full module content by Slug' })
     findOne(@GetUser('id') userId: string, @Param('slug') slug: string) {
         return this.readService.findOneBySlug(userId, slug);
+    }
+
+    /**
+     * [ADDED] PROGRESS TRACKING ENDPOINT
+     * Menangani update status membaca (STARTED/COMPLETED) dan checkpoint section.
+     * Endpoint ini dipanggil oleh ReaderPage di Frontend.
+     */
+    @Post('modules/:slug/progress')
+    @ApiOperation({ summary: 'Update learning progress (Checkpoint/Status)' })
+    @ApiParam({ name: 'slug', description: 'Module Slug' })
+    async updateProgress(
+        @GetUser('id') userId: string,
+        @Param('slug') slug: string,
+        @Body() dto: any, // Anda bisa mengganti 'any' dengan UpdateProgressDto jika sudah dibuat
+    ) {
+        // 1. Cari module ID berdasarkan slug terlebih dahulu
+        const module = await this.readService.findOneBySlug(userId, slug);
+        if (!module) {
+            throw new NotFoundException('Modul tidak ditemukan.');
+        }
+
+        // 2. Delegasikan update ke ReadService menggunakan ID asli
+        return this.readService.updateProgress(userId, module.id, dto);
     }
 
     // --- QUIZ ENDPOINTS ---
