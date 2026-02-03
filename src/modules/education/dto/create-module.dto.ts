@@ -10,8 +10,10 @@ import {
     ValidateNested,
     MaxLength,
     Matches,
+    IsEnum,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { EducationLevel } from '@prisma/client';
 
 /**
  * DTO untuk Detail Section (Atomic Content)
@@ -34,18 +36,11 @@ export class CreateSectionDto {
     @IsNotEmpty()
     contentMarkdown: string;
 
-    /**
-     * [LOGIC CHANGE]
-     * Sebelumnya: @IsUrl() -> Gagal jika input path lokal atau string kosong.
-     * Sekarang: @IsString() + Regex Path Validation.
-     * Menerima format: 'uploads/uuid-filename.ext'.
-     * Field ini optional, jika tidak ada gambar, FE tidak perlu mengirim field ini.
-     */
     @ApiPropertyOptional({ description: 'Path gambar ilustrasi (Relative Path)', example: 'uploads/f47ac10b-58cc.jpg' })
     @IsString()
     @IsOptional()
-    @Matches(/^uploads\//, {
-        message: 'Illustration URL must be a valid relative path starting with "uploads/"'
+    @Matches(/^(?:\/)?uploads\/[\w-]+\.(jpg|jpeg|png|svg|webp)$/i, {
+        message: 'Illustration URL must be a valid relative path starting with "uploads/" and supported image extension'
     })
     illustrationUrl?: string;
 }
@@ -65,16 +60,11 @@ export class CreateModuleDto {
     @IsNotEmpty()
     categoryId: string;
 
-    /**
-     * [LOGIC CHANGE]
-     * Validation Gatekeeper yang diperbaiki.
-     * Memastikan data yang masuk adalah referensi file yang valid di server kita.
-     */
     @ApiProperty({ description: 'Cover Image Path (Relative)', example: 'uploads/cover-image.jpg' })
     @IsString()
     @IsNotEmpty()
-    @Matches(/^uploads\//, {
-        message: 'Thumbnail URL must be a valid relative path starting with "uploads/"'
+    @Matches(/^(?:\/)?uploads\/[\w-]+\.(jpg|jpeg|png|svg|webp)$/i, {
+        message: 'Thumbnail URL must be a valid relative path starting with "uploads/" and supported image extension'
     })
     thumbnailUrl: string;
 
@@ -84,10 +74,21 @@ export class CreateModuleDto {
     @MaxLength(300, { message: 'Excerpt is too long (max 300 chars)' })
     excerpt: string;
 
+    @ApiProperty({ description: 'Tingkat kesulitan modul', enum: EducationLevel, example: 'BEGINNER' })
+    @IsEnum(EducationLevel)
+    @IsNotEmpty()
+    level: EducationLevel;
+
     @ApiProperty({ description: 'Estimasi waktu baca dalam menit', example: 5 })
     @IsInt()
     @Min(1)
     readingTime: number;
+
+    @ApiProperty({ description: 'Poin reward saat menyelesaikan modul', example: 100, default: 0 })
+    @IsInt()
+    @Min(0)
+    @IsOptional()
+    points?: number;
 
     @ApiProperty({ type: [CreateSectionDto], description: 'Daftar halaman/section materi' })
     @IsArray()

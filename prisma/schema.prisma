@@ -449,6 +449,12 @@ model EducationCategory {
   @@map("education_categories")
 }
 
+enum EducationLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
 model EducationModule {
   id           String                @id @default(uuid())
   categoryId   String                @map("category_id")
@@ -463,6 +469,10 @@ model EducationModule {
   
   excerpt      String                @db.Text
   readingTime  Int                   @default(5) @map("reading_time")
+
+  // [NEW] Tambahkan dua field ini:
+  level        EducationLevel        @default(BEGINNER)
+  points       Int                   @default(0)
   
   status       EducationModuleStatus @default(DRAFT)
   publishedAt  DateTime?             @map("published_at")

@@ -14,7 +14,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { Role } from '@prisma/client';
 
 // Security & Guards
-import { JwtAuthGuard } from './../../auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
 
@@ -25,8 +25,10 @@ import { UpdateCategoryDto } from '../dto/update-category.dto';
 
 /**
  * Education Category Controller
- * * Bertanggung jawab penuh atas manajemen taksonomi (Kategori) konten edukasi.
+ * -------------------------------------------------------------------------
+ * Bertanggung jawab penuh atas manajemen taksonomi (Kategori) konten edukasi.
  * Dipisahkan dari AdminEducationController untuk isolasi tanggung jawab (High Cohesion).
+ * * Flow: Admin Upload Icon ke Media Service -> Dapat URL -> Kirim ke Sini.
  */
 @ApiTags('Admin - Education Categories')
 @Controller('admin/education/categories')
@@ -41,11 +43,11 @@ export class EducationCategoryController {
     @Roles(Role.ADMIN, Role.DIRECTOR)
     @ApiOperation({
         summary: 'Create New Education Category',
-        description: 'Membuat kategori baru untuk pengelompokan modul ajar. Nama kategori harus unik.'
+        description: 'Membuat kategori baru. Field iconUrl harus berupa path relative yang didapat dari endpoint Media Upload.'
     })
     @ApiResponse({ status: HttpStatus.CREATED, description: 'Kategori berhasil dibuat.' })
-    @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Nama kategori sudah ada.' })
-    @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Data input tidak valid.' })
+    @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Nama kategori sudah ada (Unique Constraint).' })
+    @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Format input atau Icon URL tidak valid.' })
     async create(@Body() createCategoryDto: CreateCategoryDto) {
         return this.categoryService.create(createCategoryDto);
     }
@@ -56,7 +58,7 @@ export class EducationCategoryController {
     @Roles(Role.ADMIN, Role.DIRECTOR)
     @ApiOperation({
         summary: 'List All Categories',
-        description: 'Mengambil daftar semua kategori beserta jumlah modul yang terasosiasi (Count Relation).'
+        description: 'Mengambil daftar semua kategori beserta jumlah modul yang terasosiasi (_count relation).'
     })
     @ApiResponse({ status: HttpStatus.OK, description: 'Daftar kategori berhasil diambil.' })
     async findAll() {
@@ -69,7 +71,7 @@ export class EducationCategoryController {
     @Roles(Role.ADMIN, Role.DIRECTOR)
     @ApiOperation({
         summary: 'Get Category Details',
-        description: 'Melihat detail kategori spesifik.'
+        description: 'Melihat detail kategori spesifik berdasarkan UUID.'
     })
     @ApiResponse({ status: HttpStatus.OK, description: 'Detail kategori ditemukan.' })
     @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Kategori tidak ditemukan.' })
@@ -84,7 +86,7 @@ export class EducationCategoryController {
     @Roles(Role.ADMIN, Role.DIRECTOR)
     @ApiOperation({
         summary: 'Update Category',
-        description: 'Memperbarui nama atau deskripsi kategori.'
+        description: 'Memperbarui nama, deskripsi, atau icon kategori.'
     })
     @ApiResponse({ status: HttpStatus.OK, description: 'Kategori berhasil diperbarui.' })
     @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Kategori tidak ditemukan.' })
@@ -103,12 +105,12 @@ export class EducationCategoryController {
     @ApiOperation({
         summary: 'Delete Category (Safe Delete)',
         description: `
-      Menghapus kategori.
-      
-      **Validation Logic:**
-      Sistem akan MENOLAK penghapusan jika kategori ini masih digunakan oleh 'EducationModule'.
-      User harus memindahkan atau menghapus modul terkait terlebih dahulu.
-    `
+        Menghapus kategori secara permanen.
+        
+        **Validation Logic:**
+        Sistem akan MENOLAK penghapusan jika kategori ini masih digunakan oleh 'EducationModule'.
+        User harus memindahkan atau menghapus modul terkait terlebih dahulu (Manual Cascade Prevention).
+        `
     })
     @ApiResponse({ status: HttpStatus.OK, description: 'Kategori berhasil dihapus.' })
     @ApiResponse({

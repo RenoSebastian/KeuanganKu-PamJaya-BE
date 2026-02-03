@@ -1,5 +1,5 @@
 import { IsNotEmpty, IsString, MaxLength, IsOptional, MinLength, Matches } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 
 export class CreateCategoryDto {
@@ -16,10 +16,9 @@ export class CreateCategoryDto {
     @Transform(({ value }) => value?.trim())
     name: string;
 
-    @ApiProperty({
+    @ApiPropertyOptional({
         description: 'Deskripsi singkat kategori.',
         example: 'Panduan lengkap mengenai analisis saham.',
-        required: false,
     })
     @IsString()
     @IsOptional()
@@ -27,15 +26,14 @@ export class CreateCategoryDto {
     @Transform(({ value }) => value?.trim())
     description?: string;
 
-    // [FIX] Menambahkan field iconUrl yang wajib ada di Schema
     @ApiProperty({
         description: 'URL/Path icon kategori (dari Media Upload).',
         example: 'uploads/icon-saham.png',
     })
     @IsString({ message: 'Icon URL harus berupa string path.' })
     @IsNotEmpty({ message: 'Icon URL wajib diisi.' })
-    @Matches(/^\/?uploads\/[\w-]+\.(jpg|jpeg|png|svg|webp)$/i, {
-        message: 'Icon URL harus valid (e.g. uploads/file.png) dan berupa gambar.',
+    @Matches(/^(?:\/)?uploads\/[\w-]+\.(jpg|jpeg|png|svg|webp)$/i, {
+        message: 'Icon URL harus valid (e.g. uploads/file.png) dan berupa file gambar yang didukung.',
     })
     iconUrl: string;
 }

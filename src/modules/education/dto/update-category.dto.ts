@@ -2,10 +2,12 @@ import { PartialType } from '@nestjs/swagger';
 import { CreateCategoryDto } from './create-category.dto';
 
 /**
- * Data Transfer Object untuk pembaruan (Update) Kategori Edukasi.
- * * Menggunakan PartialType untuk:
- * 1. Mewarisi semua properti dari CreateCategoryDto (name, description).
- * 2. Mengubah semua properti tersebut menjadi Optional (?).
- * 3. Tetap mempertahankan aturan validasi (misal: MinLength, IsString) jika properti tersebut dikirim.
+ * DTO untuk Update Kategori
+ * -----------------------------------------------------------
+ * Mewarisi validasi dari CreateCategoryDto:
+ * - name: Min 3 chars
+ * - iconUrl: Validasi Regex path uploads/
+ *
+ * Semua field bersifat optional untuk keperluan PATCH request.
  */
 export class UpdateCategoryDto extends PartialType(CreateCategoryDto) { }

@@ -11,7 +11,7 @@ import { UpdateModuleDto } from '../dto/update-module.dto';
 import { UpdateModuleStatusDto } from '../dto/update-module-status.dto';
 import { ReorderSectionsDto } from '../dto/reorder-sections.dto';
 import { UpsertQuizDto } from '../dto/upsert-quiz.dto';
-import { EducationModuleStatus } from '@prisma/client';
+import { EducationModuleStatus, EducationLevel } from '@prisma/client';
 import { MediaStorageService } from '../../media/services/media-storage.service';
 import slugify from 'slugify';
 
@@ -50,7 +50,13 @@ export class EducationManagementService {
                 // A. Create Header
                 const newModule = await tx.educationModule.create({
                     data: {
-                        ...moduleData,
+                        categoryId: moduleData.categoryId,
+                        title: moduleData.title,
+                        thumbnailUrl: moduleData.thumbnailUrl,
+                        excerpt: moduleData.excerpt,
+                        level: moduleData.level,
+                        readingTime: moduleData.readingTime,
+                        points: moduleData.points || 0,
                         slug,
                         status: EducationModuleStatus.DRAFT, // Default selalu DRAFT
                         publishedAt: null,
@@ -113,7 +119,9 @@ export class EducationManagementService {
                         categoryId: dto.categoryId,
                         thumbnailUrl: dto.thumbnailUrl,
                         excerpt: dto.excerpt,
+                        level: dto.level,
                         readingTime: dto.readingTime,
+                        points: dto.points,
                     },
                 });
             });
@@ -277,8 +285,6 @@ export class EducationManagementService {
         const oldMediaSet = new Set<string>();
         if (existingQuiz) {
             existingQuiz.questions.forEach(q => {
-                // [FIXED] Accessing property yang baru ditambahkan di schema (imageUrl)
-                // TypeScript akan mengenali properti ini SETELAH `npx prisma generate`
                 if (q.imageUrl) oldMediaSet.add(q.imageUrl);
                 q.options.forEach(o => {
                     if (o.imageUrl) oldMediaSet.add(o.imageUrl);
@@ -337,7 +343,6 @@ export class EducationManagementService {
                             quizId: quiz.id,
                             questionText: q.questionText,
                             type: q.type,
-                            // [FIXED] Property ini sekarang valid (schema update)
                             imageUrl: q.imageUrl,
                             points: q.points || 10,
                             orderIndex: q.orderIndex,
@@ -347,7 +352,6 @@ export class EducationManagementService {
                                     data: q.options.map((opt) => ({
                                         optionText: opt.optionText,
                                         isCorrect: opt.isCorrect,
-                                        // [FIXED] Property ini sekarang valid
                                         imageUrl: opt.imageUrl,
                                         orderIndex: opt.orderIndex
                                     })),

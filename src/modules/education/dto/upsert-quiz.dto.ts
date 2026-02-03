@@ -19,14 +19,13 @@ import { QuizQuestionType } from '@prisma/client';
 /**
  * [SECURITY CONSTANT]
  * Regex Validator untuk Path Gambar.
- * * Rules:
+ * Rules:
  * 1. Optional leading slash (/)
  * 2. Wajib diawali folder 'uploads/'
  * 3. Filename hanya boleh alphanumeric, underscore, dan dash (UUID safe)
  * 4. Ekstensi wajib gambar (jpg, jpeg, png, webp)
- * * Prevents: Directory Traversal (e.g. ../../etc/passwd) & Invalid File Types
  */
-const IMAGE_PATH_REGEX = /^\/?uploads\/[\w-]+\.(jpg|jpeg|png|webp)$/i;
+const IMAGE_PATH_REGEX = /^(?:\/)?uploads\/[\w-]+\.(jpg|jpeg|png|webp)$/i;
 const IMAGE_VALIDATION_MSG = 'Image URL must be a valid path (e.g. uploads/uuid.jpg) and explicitly an image file.';
 
 // --- 1. DTO OPSI JAWABAN ---
@@ -54,7 +53,7 @@ export class UpsertQuizOptionDto {
     @IsString()
     @IsOptional()
     @Matches(IMAGE_PATH_REGEX, { message: IMAGE_VALIDATION_MSG })
-    imageUrl?: string; // [PHASE 3: SECURITY]
+    imageUrl?: string;
 
     @ApiPropertyOptional({
         description: 'Urutan tampilan opsi (jika ingin custom order).',
@@ -99,7 +98,7 @@ export class UpsertQuizQuestionDto {
     @IsString()
     @IsOptional()
     @Matches(IMAGE_PATH_REGEX, { message: IMAGE_VALIDATION_MSG })
-    imageUrl?: string; // [PHASE 3: SECURITY]
+    imageUrl?: string;
 
     @ApiPropertyOptional({
         description: 'Penjelasan/Pembahasan yang muncul setelah kuis selesai.',
