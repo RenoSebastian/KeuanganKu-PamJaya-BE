@@ -9,7 +9,7 @@ import {
 import { Request, Response } from 'express';
 
 @Catch()
-export class AllExceptionsFilter implements ExceptionFilter {
+export class HttpExceptionFilter implements ExceptionFilter {
   // Logger khusus untuk Filter, agar mudah dicari di log file dengan keyword [GlobalFilter]
   private readonly logger = new Logger('GlobalFilter');
 
@@ -32,8 +32,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? exception.getResponse()
         : { message: 'Internal Server Error' };
 
-    const errorMessage = typeof res === 'string' ? res : res.message;
-    
+    // Normalisasi pesan error (bisa berupa string atau object)
+    const errorMessage = typeof res === 'string' ? res : res.message || res;
+
     // 3. Ambil Stack Trace (Jejak Error di kodingan)
     // Jika production, mungkin kita tidak ingin log stack trace terlalu detail, 
     // tapi untuk file log internal, ini WAJIB ada.

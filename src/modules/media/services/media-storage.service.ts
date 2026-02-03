@@ -1,5 +1,6 @@
 import { Injectable, InternalServerErrorException, Logger, OnModuleInit } from '@nestjs/common';
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises'; // Menggunakan API Promise native
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -45,8 +46,8 @@ export class MediaStorageService implements OnModuleInit {
             const filePath = path.join(this.getUploadPath(), filename);
 
             // 3. Write File to Disk (Asynchronous I/O)
-            // Menggunakan fs.promises agar tidak memblokir Event Loop Node.js
-            await fs.promises.writeFile(filePath, file.buffer);
+            // Menggunakan fsPromises agar tidak memblokir Event Loop Node.js
+            await fsPromises.writeFile(filePath, file.buffer);
 
             this.logger.log(`File persisted successfully: ${filename} (${file.size} bytes)`);
 
@@ -92,8 +93,8 @@ export class MediaStorageService implements OnModuleInit {
 
             // Cek eksistensi file sebelum menghapus
             try {
-                await fs.promises.access(absolutePath, fs.constants.F_OK);
-                await fs.promises.unlink(absolutePath);
+                await fsPromises.access(absolutePath, fs.constants.F_OK);
+                await fsPromises.unlink(absolutePath);
 
                 this.logger.log(`File deleted successfully: ${filename}`);
                 return true; // Sukses terhapus
@@ -115,6 +116,62 @@ export class MediaStorageService implements OnModuleInit {
             // Kita return false (gagal hapus) tapi TIDAK throw error, 
             // agar proses batch delete pada array file lain tetap berjalan.
             return false;
+        }
+    }
+
+    /**
+     * [PHASE 1: DISCOVERY & INDEXING]
+     * Mengembalikan Async Generator untuk iterasi file fisik secara efisien (Streaming).
+     * * Pattern: Directory Iterator
+     * Mengapa? fs.readdir biasa memuat seluruh array nama file ke RAM. 
+     * fs.opendir membuka stream pointer ke direktori, sangat hemat memori untuk ribuan file.
+     * * @returns AsyncGenerator yang menghasilkan string relative path (e.g., "uploads/abc.jpg")
+     */
+    async *getFileIterator(): AsyncGenerator<string> {
+        const dirPath = this.getUploadPath();
+
+        try {
+            // Membuka directory stream menggunakan fsPromises.opendir (Node.js 12.12+)
+            const dir = await fsPromises.opendir(dirPath);
+
+            // Iterasi pointer
+            for await (const dirent of dir) {
+                // Hanya proses file, abaikan folder (recursive tidak disupport untuk saat ini demi security)
+                if (dirent.isFile()) {
+                    // Abaikan file sistem (e.g., .gitignore, .DS_Store)
+                    if (dirent.name.startsWith('.')) continue;
+
+                    // Yield path relatif yang konsisten dengan format Database
+                    yield `${this.URL_PREFIX}/${dirent.name}`;
+                }
+            }
+        } catch (error) {
+            this.logger.error(`Failed to open directory stream: ${error.message}`);
+            // Jika folder tidak ada, kita yield kosong (bukan throw error) agar proses cron tidak crash total
+            return;
+        }
+    }
+
+    /**
+     * [PHASE 3 NEW] Get File Metadata
+     * Mengambil info ukuran dan waktu modifikasi file untuk keperluan audit & safety check.
+     * Digunakan oleh Garbage Collector untuk mengecek "Time Buffer" (umur file).
+     * Mengembalikan null jika file tidak ditemukan.
+     */
+    async getFileStats(relativePath: string): Promise<{ size: number; mtime: Date } | null> {
+        try {
+            const filename = path.basename(relativePath);
+            const absolutePath = path.join(this.getUploadPath(), filename);
+
+            // fs.stat memberikan informasi size (bytes) dan mtime (modified time)
+            const stats = await fsPromises.stat(absolutePath);
+            return {
+                size: stats.size,
+                mtime: stats.mtime
+            };
+        } catch (error) {
+            // Jika file tidak ada atau error lain, return null agar caller bisa handle gracefully
+            return null;
         }
     }
 

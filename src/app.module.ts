@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ScheduleModule } from '@nestjs/schedule';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule'; // [PHASE 4] Cron Support
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { WinstonModule } from 'nest-winston';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import * as path from 'path';
@@ -9,8 +9,13 @@ import * as path from 'path';
 // --- Logging & Config ---
 import { winstonConfig } from './common/configs/winston.config';
 
-// --- Modules ---
-import { PrismaModule } from '../prisma/prisma.module';
+// --- Global Filters & Interceptors ---
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { AuditInterceptor } from './common/interceptors/audit.interceptor';
+
+// --- Feature Modules ---
+import { PrismaModule } from '../prisma/prisma.module'; // Import dari root prisma folder
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { FinancialModule } from './modules/financial/financial.module';
@@ -23,32 +28,32 @@ import { RetentionModule } from './modules/retention/retention.module';
 import { EducationModule } from './modules/education/education.module';
 import { MediaModule } from './modules/media/media.module';
 
-// --- Interceptors ---
-import { AuditInterceptor } from './common/interceptors/audit.interceptor';
-
 @Module({
   imports: [
     // 1. Global Configurations
-    ConfigModule.forRoot({ isGlobal: true }),
-    ScheduleModule.forRoot(),
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
     WinstonModule.forRoot(winstonConfig),
 
+    // [PHASE 4] Scheduler untuk Retention Cron Job
+    ScheduleModule.forRoot(),
+
     /**
-     * 2. SERVE STATIC FILES configuration
-     * [LOGICAL FIX]: Kita arahkan ke folder './uploads' agar sinkron dengan 
-     * MediaStorageService. Dengan 'serveRoot: /uploads', file di 
-     * folder './uploads/abc.jpg' akan diakses via 'http://domain.com/uploads/abc.jpg'
+     * 2. STATIC FILE SERVING
+     * Mengizinkan akses publik ke folder uploads.
+     * URL: http://host:port/api/uploads/{filename}
      */
     ServeStaticModule.forRoot({
-      rootPath: path.join(__dirname, '..', 'uploads'),
-      // Serve static uploads under /api/uploads to match global API prefix
-      serveRoot: '/api/uploads',
+      rootPath: path.join(__dirname, '..', 'uploads'), // Point ke root/uploads
+      serveRoot: '/api/uploads', // URL Prefix
+      exclude: ['/api/(.*)'], // Jangan tangkap route API lain
     }),
 
-    // 3. Core Database Module
+    // 3. Database
     PrismaModule,
 
-    // 4. Feature Modules
+    // 4. Application Features
     AuthModule,
     UsersModule,
     FinancialModule,
@@ -59,10 +64,21 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     MasterDataModule,
     RetentionModule,
     EducationModule,
-    MediaModule, // Handled POST /api/media/upload
+    MediaModule,
   ],
   controllers: [],
   providers: [
+    // Global Error Handling
+    {
+      provide: APP_FILTER,
+      useClass: HttpExceptionFilter,
+    },
+    // Global Request Logging
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LoggingInterceptor,
+    },
+    // Global Audit Trail
     {
       provide: APP_INTERCEPTOR,
       useClass: AuditInterceptor,

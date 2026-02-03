@@ -10,6 +10,7 @@ import { SnapshotRetentionStrategy } from './strategies/snapshot-retention.strat
 import { RetentionStrategyFactory } from './strategies/retention-strategy.factory';
 import { ExportManagerService } from './services/export-manager.service';
 import { EducationCleanupStrategy } from './strategies/education-cleanup.strategy';
+import { RetentionCronService } from './services/retention-cron.service';
 
 @Module({
     imports: [
@@ -31,6 +32,7 @@ import { EducationCleanupStrategy } from './strategies/education-cleanup.strateg
         SnapshotRetentionStrategy,
         ExportManagerService,
         EducationCleanupStrategy,
+        RetentionCronService,
     ],
     exports: [RetentionService],
 })
