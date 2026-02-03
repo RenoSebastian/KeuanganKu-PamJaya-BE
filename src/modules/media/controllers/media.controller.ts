@@ -6,12 +6,13 @@ import {
     UseGuards,
     UseInterceptors,
     UploadedFile,
-    ParseFilePipe,
-    MaxFileSizeValidator,
-    FileTypeValidator,
+    ParseFilePipeBuilder,
     HttpStatus,
     HttpCode,
     BadRequestException,
+    ParseFilePipe,
+    MaxFileSizeValidator,
+    FileTypeValidator,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags, ApiResponse } from '@nestjs/swagger';
@@ -31,7 +32,7 @@ export class MediaController {
     // --- UPLOAD ENDPOINT ---
 
     @Post('upload')
-    @Roles(Role.ADMIN, Role.DIRECTOR) // Security: Hanya Admin/Director yang boleh upload
+    @Roles(Role.ADMIN, Role.DIRECTOR)
     @HttpCode(HttpStatus.CREATED)
     @ApiOperation({ summary: 'Upload single image asset (Max 2MB, JPG/PNG/WEBP)' })
     @ApiConsumes('multipart/form-data')
@@ -54,20 +55,16 @@ export class MediaController {
         @UploadedFile(
             new ParseFilePipe({
                 validators: [
-                    // 1. Size Validation: Hard Limit 2MB
-                    // Mencegah serangan DoS melalui exhaustion storage
                     new MaxFileSizeValidator({
                         maxSize: 2 * 1024 * 1024,
                         message: 'File terlalu besar. Maksimal ukuran yang diizinkan adalah 2MB.'
                     }),
-
-                    // 2. MIME Type Validation: Regex Literal
-                    // Menangkap: image/jpeg, image/jpg, image/png, image/webp
                     new FileTypeValidator({
-                        fileType: /image\/(jpeg|jpg|png|webp)/
+                        fileType: /image\/(jpeg|jpg|png|webp)/,
+                        // TAMBAHKAN OPSI INI HANYA UNTUK DEBUGGING:
+                        skipMagicNumbersValidation: true 
                     }),
                 ],
-                // Mengembalikan 400 Bad Request jika validasi gagal
                 errorHttpStatusCode: HttpStatus.BAD_REQUEST,
             }),
         )
@@ -77,13 +74,13 @@ export class MediaController {
             throw new BadRequestException('File tidak ditemukan dalam request.');
         }
 
-        // Delegasi ke Service (Separation of Concerns)
+        // Delegasi ke Service
         const result = await this.mediaService.uploadFile(file);
 
         return {
             status: 'success',
             message: 'File uploaded successfully',
-            data: result, // { url: 'uploads/uuid.jpg', filename: ... }
+            data: result,
         };
     }
 
@@ -112,7 +109,6 @@ export class MediaController {
             throw new BadRequestException('Path file wajib diisi.');
         }
 
-        // Validasi path traversal sederhana
         if (path.includes('..')) {
             throw new BadRequestException('Invalid path format.');
         }
