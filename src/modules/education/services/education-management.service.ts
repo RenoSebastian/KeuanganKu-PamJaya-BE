@@ -12,7 +12,7 @@ import { UpdateModuleStatusDto } from '../dto/update-module-status.dto';
 import { ReorderSectionsDto } from '../dto/reorder-sections.dto';
 import { UpsertQuizDto } from '../dto/upsert-quiz.dto';
 import { EducationModuleStatus } from '@prisma/client';
-import { MediaStorageService } from '../../media/services/media-storage.service'; // [NEW] Import Service
+import { MediaStorageService } from '../../media/services/media-storage.service';
 import slugify from 'slugify';
 
 @Injectable()
@@ -21,7 +21,7 @@ export class EducationManagementService {
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly mediaService: MediaStorageService, // [NEW] Inject Media Service
+        private readonly mediaService: MediaStorageService,
     ) { }
 
     // --- CORE CRUD OPERATIONS ---
@@ -105,8 +105,6 @@ export class EducationManagementService {
                 }
 
                 // Update Header Only
-                // Note: Update Sections logic biasanya terpisah atau butuh nested upsert kompleks.
-                // Di sini kita fokus update properti modul utama.
                 return tx.educationModule.update({
                     where: { id: moduleId },
                     data: {
@@ -214,10 +212,7 @@ export class EducationManagementService {
 
         // Eksekusi Hapus Masal
         if (filesToDelete.length > 0) {
-            this.logger.log(`Deleting ${filesToDelete.length} assets for module ${moduleId}`);
-            // Gunakan Promise.all untuk paralel execution (Efisiensi I/O)
-            // Error pada satu file tidak boleh menghentikan proses yang lain
-            await Promise.allSettled(filesToDelete.map((path) => this.mediaService.deleteFile(path)));
+            this.cleanupMediaBackground(filesToDelete);
         }
 
         return { message: 'Modul dan aset berhasil dihapus' };
@@ -237,14 +232,18 @@ export class EducationManagementService {
         );
     }
 
-    // --- QUIZ MANAGEMENT LOGIC (Phase 3 Integration) ---
+    // --- QUIZ MANAGEMENT LOGIC (Phase 1 & 3 Integration) ---
 
+    /**
+     * Menangani Update/Insert Quiz beserta Pertanyaan dan Opsi-nya.
+     * [PHASE 1 FEATURE]: Garbage Collection untuk file media yang tidak terpakai (Orphan Files).
+     */
     async upsertQuiz(moduleId: string, dto: UpsertQuizDto) {
         // 1. Validate Parent Module
         const module = await this.prisma.educationModule.findUnique({ where: { id: moduleId } });
         if (!module) throw new NotFoundException('Module not found');
 
-        // 2. Logic Guardrails
+        // 2. Logic Guardrails (Validasi Integritas Soal)
         if (!dto.questions || dto.questions.length === 0) {
             throw new BadRequestException('A quiz must contain at least one question.');
         }
@@ -263,9 +262,48 @@ export class EducationManagementService {
             }
         });
 
+        // [PHASE 1: PRE-FETCH & IDENTIFICATION]
+        // Kita ambil data lama untuk melihat gambar mana yang sudah ada di database.
+        const existingQuiz = await this.prisma.quiz.findUnique({
+            where: { moduleId },
+            include: {
+                questions: {
+                    include: { options: true }
+                }
+            }
+        });
+
+        // Kumpulkan semua URL gambar dari data LAMA (Database)
+        const oldMediaSet = new Set<string>();
+        if (existingQuiz) {
+            existingQuiz.questions.forEach(q => {
+                if (q.imageUrl) oldMediaSet.add(q.imageUrl);
+                q.options.forEach(o => {
+                    if (o.imageUrl) oldMediaSet.add(o.imageUrl);
+                });
+            });
+        }
+
+        // Kumpulkan semua URL gambar dari data BARU (DTO)
+        const newMediaSet = new Set<string>();
+        dto.questions.forEach(q => {
+            if (q.imageUrl) newMediaSet.add(q.imageUrl);
+            q.options.forEach(o => {
+                if (o.imageUrl) newMediaSet.add(o.imageUrl);
+            });
+        });
+
+        // [PHASE 1: DIFFING]
+        // Cari gambar yang ada di Lama TAPI tidak ada di Baru -> Ini adalah Orphan (Sampah)
+        const orphanFiles = [...oldMediaSet].filter(url => !newMediaSet.has(url));
+
+        if (orphanFiles.length > 0) {
+            this.logger.log(`Upsert Quiz Analysis: Found ${orphanFiles.length} orphan images to cleanup.`);
+        }
+
         // 3. Transactional Replacement
         try {
-            return await this.prisma.$transaction(async (tx) => {
+            const result = await this.prisma.$transaction(async (tx) => {
                 // A. Upsert Quiz Header
                 const quiz = await tx.quiz.upsert({
                     where: { moduleId },
@@ -284,25 +322,30 @@ export class EducationManagementService {
                     },
                 });
 
-                // B. Wipe Clean Questions
+                // B. Wipe Clean Questions (Cascade delete will remove options)
+                // Note: File fisik tidak terhapus otomatis oleh DB, makanya kita butuh logic orphanFiles di atas.
                 await tx.quizQuestion.deleteMany({
                     where: { quizId: quiz.id },
                 });
 
-                // C. Bulk Insert New Questions
+                // C. Bulk Insert New Questions (Nested Write)
                 for (const q of dto.questions) {
                     await tx.quizQuestion.create({
                         data: {
                             quizId: quiz.id,
                             questionText: q.questionText,
                             type: q.type,
+                            imageUrl: q.imageUrl,
                             orderIndex: q.orderIndex,
                             explanation: q.explanation,
+                            points: q.points || 10,
                             options: {
                                 createMany: {
                                     data: q.options.map((opt) => ({
                                         optionText: opt.optionText,
                                         isCorrect: opt.isCorrect,
+                                        imageUrl: opt.imageUrl,
+                                        orderIndex: opt.orderIndex
                                     })),
                                 },
                             },
@@ -320,14 +363,48 @@ export class EducationManagementService {
                     },
                 });
             });
+
+            // [PHASE 1: ASYNC CLEANUP]
+            // Jika transaksi DB sukses, baru kita hapus file fisik.
+            if (orphanFiles.length > 0) {
+                this.cleanupMediaBackground(orphanFiles);
+            }
+
+            return result;
+
         } catch (error) {
             if (error instanceof BadRequestException) throw error;
             this.logger.error(`Failed to upsert quiz: ${error.message}`);
+            // Jika DB gagal, orphanFiles TIDAK dihapus. Ini menjaga konsistensi.
             throw new InternalServerErrorException('Transaction failed while saving quiz data.');
         }
     }
 
     // --- UTILITIES ---
+
+    /**
+     * Helper untuk menghapus file di background tanpa memblokir thread utama.
+     * Menggunakan Promise.allSettled untuk ketahanan (Reliability).
+     */
+    private async cleanupMediaBackground(filePaths: string[]) {
+        this.logger.log(`Starting background cleanup for ${filePaths.length} files...`);
+
+        const results = await Promise.allSettled(
+            filePaths.map(path => this.mediaService.deleteFile(path))
+        );
+
+        const successCount = results.filter(r => r.status === 'fulfilled' && r.value === true).length;
+        const failCount = results.length - successCount;
+
+        this.logger.log(`Cleanup Complete. Success: ${successCount}, Failed/Skipped: ${failCount}`);
+
+        // Debugging untuk file yang gagal
+        results.forEach((r, idx) => {
+            if (r.status === 'rejected') {
+                this.logger.error(`Failed to delete ${filePaths[idx]}: ${r.reason}`);
+            }
+        });
+    }
 
     private async generateUniqueSlug(title: string): Promise<string> {
         const baseSlug = slugify(title, { lower: true, strict: true });

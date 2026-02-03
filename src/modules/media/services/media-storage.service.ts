@@ -8,9 +8,9 @@ export class MediaStorageService implements OnModuleInit {
     private readonly logger = new Logger(MediaStorageService.name);
 
     // [CONFIGURATION]
-    // Menggunakan strategi Local Storage di root folder './uploads'
-    // Ini memisahkan file fisik dari source code (/src) dan build folder (/dist)
-    private readonly UPLOAD_DIR = './uploads';
+    // Menggunakan strategi Local Storage. 
+    // Default './uploads', tapi bisa di-override via ENV untuk production (misal: volume docker)
+    private readonly UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
     // URL Prefix yang akan disimpan di database.
     // Frontend akan mengakses via: {BASE_URL}/uploads/{filename}
@@ -70,31 +70,51 @@ export class MediaStorageService implements OnModuleInit {
     /**
      * Utility: Delete File
      * Menghapus file fisik. Penting untuk proses Cleanup/Retention agar server tidak penuh sampah.
-     * Digunakan oleh EducationService saat Update (ganti gambar) atau Delete modul.
+     * * [PHASE 1 UPDATE]
+     * - Return boolean: Agar caller (EducationService) bisa menghitung success/fail rate.
+     * - Idempotent: Tidak throw error jika file sudah tidak ada.
      */
-    async deleteFile(relativePath: string): Promise<void> {
-        if (!relativePath) return;
+    async deleteFile(relativePath: string): Promise<boolean> {
+        if (!relativePath) return false;
 
         try {
-            // [SECURITY] Sanitasi input path untuk mencegah Path Traversal Attack (misal: ../../etc/passwd)
-            // Kita memaksa hanya mengambil nama file terakhir dan menempelkannya ke folder upload resmi.
+            // [SECURITY] Sanitasi input path untuk mencegah Path Traversal Attack
+            // Kita ambil nama filenya saja, lalu gabung ulang dengan folder resmi.
+            // Ini mencegah input jahat seperti "../../etc/passwd"
             const filename = path.basename(relativePath);
             const absolutePath = path.join(this.getUploadPath(), filename);
 
-            // Cek eksistensi file sebelum menghapus untuk menghindari error ENOENT
+            // Double Check: Pastikan path yang dihasilkan masih di dalam UPLOAD_DIR
+            if (!absolutePath.startsWith(this.getUploadPath())) {
+                this.logger.warn(`Security Block: Attempt to delete file outside upload dir: ${absolutePath}`);
+                return false;
+            }
+
+            // Cek eksistensi file sebelum menghapus
             try {
                 await fs.promises.access(absolutePath, fs.constants.F_OK);
                 await fs.promises.unlink(absolutePath);
+
                 this.logger.log(`File deleted successfully: ${filename}`);
+                return true; // Sukses terhapus
+
             } catch (err) {
-                // Jika file tidak ditemukan, kita log sebagai warning tapi tidak throw error.
-                // Ini penting agar transaksi DB utama (misal: Delete Module) tidak rollback 
-                // hanya karena file gambarnya sudah hilang duluan.
-                this.logger.warn(`File not found for deletion or access denied: ${absolutePath}`);
+                if (err.code === 'ENOENT') {
+                    // [IDEMPOTENCY]
+                    // Jika file tidak ditemukan, kita anggap "Sukses" (karena tujuan akhirnya file tidak ada).
+                    // Namun return false agar caller tahu tidak ada aksi penghapusan real yang terjadi (opsional).
+                    // Di sini kita return false agar log di Service bisa membedakan "Deleted" vs "Skipped".
+                    this.logger.warn(`File not found during cleanup (skipped): ${filename}`);
+                    return false;
+                }
+                throw err; // Lempar error lain (misal: Permission Denied) ke catch block luar
             }
+
         } catch (error) {
             this.logger.error(`Cleanup failed for ${relativePath}: ${error.message}`);
-            // Kita suppress error delete agar tidak mengganggu flow bisnis utama (Silent Fail)
+            // Kita return false (gagal hapus) tapi TIDAK throw error, 
+            // agar proses batch delete pada array file lain tetap berjalan.
+            return false;
         }
     }
 
@@ -105,7 +125,7 @@ export class MediaStorageService implements OnModuleInit {
      * Menggunakan process.cwd() untuk memastikan path benar dimanapun node dijalankan.
      */
     private getUploadPath(): string {
-        return path.join(process.cwd(), this.UPLOAD_DIR);
+        return path.resolve(process.cwd(), this.UPLOAD_DIR);
     }
 
     private ensureUploadDirectoryExists() {
