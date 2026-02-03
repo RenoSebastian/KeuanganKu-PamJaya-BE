@@ -24,6 +24,7 @@ import { RolesGuard } from '../../../common/guards/roles.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import { Role } from '@prisma/client';
+import { Get } from '@nestjs/common';
 
 @ApiTags('Admin - Education Management')
 @Controller('admin/education')
@@ -85,5 +86,12 @@ export class AdminEducationController {
     })
     upsertQuiz(@Param('id') id: string, @Body() dto: UpsertQuizDto) {
         return this.managementService.upsertQuiz(id, dto);
+    }
+
+    @Get('modules')
+    @ApiOperation({ summary: 'Get all modules list (Admin View)' })
+    @ApiResponse({ status: 200, description: 'Return all modules' })
+    findAll() {
+        return this.managementService.findAllModules();
     }
 }

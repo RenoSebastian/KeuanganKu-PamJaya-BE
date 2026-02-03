@@ -435,4 +435,12 @@ export class EducationManagementService {
 
         return slug;
     }
+
+    // education-management.service.ts
+    async findAllModules() {
+        return this.prisma.educationModule.findMany({
+            orderBy: { createdAt: 'desc' },
+            include: { _count: { select: { sections: true } } }
+        });
+    }
 }

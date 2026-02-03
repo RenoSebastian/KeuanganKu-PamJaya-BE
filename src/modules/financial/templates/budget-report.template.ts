@@ -178,7 +178,7 @@ export const budgetReportTemplate = `
     }
     .info-row {
       display: flex; justify-content: space-between; align-items: center;
-      margin-bottom: 8px; font-size: 11px; border-bottom: 1px dashed #e2e8f0; padding-bottom: 4px;
+      margin-bottom: 8px; font-size: 11px; border-bottom: 1px dashed #000000; padding-bottom: 4px;
     }
     .info-row:last-child { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
     .label { color: var(--secondary); font-weight: 600; }
@@ -187,8 +187,8 @@ export const budgetReportTemplate = `
     .total-highlight {
       margin-top: 10px; padding-top: 8px; border-top: 2px solid #000000;
     }
-    .total-highlight .label { font-weight: 800; color: var(--primary-dark);     text-transform: uppercase; font-size: 10px; }
-    .total-highlight .value { font-size: 14px; color: var(--primary-dark); }
+    .total-highlight .label { font-weight: 800; color: var(--item);     text-transform: uppercase; font-size: 10px; }
+    .total-highlight .value { font-size: 14px; color: var(--item); }
 
     /* --- ALLOCATION LIST --- */
     .allocation-list {

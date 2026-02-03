@@ -10,7 +10,7 @@ import { join } from 'path';
 import { WinstonModule } from 'nest-winston';
 import { winstonConfig } from './common/configs/winston.config';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
-import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
   /**
@@ -62,7 +62,7 @@ async function bootstrap() {
    * - ValidationPipe: Memastikan data masuk sesuai DTO (Data Transfer Object).
    */
   app.useGlobalInterceptors(new LoggingInterceptor());
-  app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalFilters(new HttpExceptionFilter());
 
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true, // Hapus properti yang tidak ada di DTO

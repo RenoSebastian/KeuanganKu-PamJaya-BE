@@ -10,8 +10,10 @@ import { EducationManagementService } from './services/education-management.serv
 import { EducationReadService } from './services/education-read.service';
 import { QuizEngineService } from './services/quiz-engine.service'; // [NEW]
 
+import { MediaModule } from '../media/media.module';
+
 @Module({
-    imports: [PrismaModule],
+    imports: [PrismaModule, MediaModule,],
     controllers: [
         AdminEducationController,
         PublicEducationController,
