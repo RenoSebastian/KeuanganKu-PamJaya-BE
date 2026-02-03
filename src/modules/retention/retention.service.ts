@@ -163,7 +163,7 @@ export class RetentionService {
                 this.logger.log('Switching to EducationCleanupStrategy (Media Aware)...');
                 const eduStrategy = new EducationCleanupStrategy(this.prisma, this.mediaService);
 
-                // [FIX] Menggunakan method 'execute' agar sesuai dengan Interface & Implementation
+                // Menggunakan method 'execute' agar sesuai dengan Interface & Implementation
                 // Parameter kedua (isDryRun) default false untuk mode eksekusi real
                 result = await eduStrategy.execute(cutoff);
             } else {
@@ -178,15 +178,19 @@ export class RetentionService {
 
             const deletedCount = result.recordsDeleted ?? result.recordsToPrune ?? 0;
 
-            // 3. Audit Logging
+            // 3. Audit Logging (FIXED)
             await this.prisma.retentionLog.create({
                 data: {
                     executorId: adminId,
                     entityType: entityType,
-                    action: 'PRUNE',
+                    // [FIX] 'action' tidak ada di schema RetentionLog, pindahkan ke metadata
+                    // [FIX] Set status dan completedAt karena proses sudah selesai
+                    status: 'COMPLETED',
+                    completedAt: new Date(),
                     recordsDeleted: deletedCount,
                     cutoffDate: cutoff,
                     metadata: {
+                        action: 'PRUNE', // Disimpan di JSON metadata
                         strategy: result.strategyName,
                         tableName: tableName,
                         requestedAt: new Date(),

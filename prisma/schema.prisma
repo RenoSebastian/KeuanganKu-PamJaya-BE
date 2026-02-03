@@ -433,6 +433,10 @@ model EducationCategory {
   id           String   @id @default(uuid())
   name         String
   slug         String   @unique
+  
+  // [NEW] Menambahkan deskripsi agar sesuai dengan DTO & Service
+  description  String?  @db.VarChar(255) 
+  
   iconUrl      String   @map("icon_url")
   displayOrder Int      @default(0) @map("display_order")
   isActive     Boolean  @default(true) @map("is_active")
@@ -564,8 +568,13 @@ model QuizQuestion {
   
   questionText String           @map("question_text") @db.Text
   type         QuizQuestionType @default(SINGLE_CHOICE)
-  orderIndex   Int              @map("order_index") // Urutan soal
-  explanation  String?          @db.Text // Pembahasan (tampil setelah quiz selesai)
+  
+  // [NEW] Kolom Media & Poin
+  imageUrl     String?          @map("image_url") // Menyimpan path gambar soal
+  points       Int              @default(10)      // Bobot nilai per soal
+  
+  orderIndex   Int              @map("order_index") 
+  explanation  String?          @db.Text 
 
   // Relasi
   quiz         Quiz             @relation(fields: [quizId], references: [id], onDelete: Cascade)
@@ -576,14 +585,18 @@ model QuizQuestion {
 }
 
 model QuizOption {
-  id         String       @id @default(uuid())
-  questionId String       @map("question_id")
+  id          String       @id @default(uuid())
+  questionId  String       @map("question_id")
   
-  optionText String       @map("option_text") @db.Text
-  isCorrect  Boolean      @default(false) @map("is_correct") // KUNCI JAWABAN (Hidden from Client)
+  optionText  String       @map("option_text") @db.Text
+  isCorrect   Boolean      @default(false) @map("is_correct")
+  
+  // [NEW] Kolom Media & Urutan Opsi
+  imageUrl    String?      @map("image_url")   // Menyimpan path gambar pada pilihan jawaban
+  orderIndex  Int          @default(0) @map("order_index")
 
   // Relasi
-  question   QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  question    QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   @@index([questionId])
   @@map("quiz_options")

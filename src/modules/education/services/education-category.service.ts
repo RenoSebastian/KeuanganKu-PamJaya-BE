@@ -4,17 +4,13 @@ import {
     ConflictException,
     InternalServerErrorException,
     Logger,
-    BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { CreateCategoryDto } from '../dto/create-category.dto';
 import { UpdateCategoryDto } from '../dto/update-category.dto';
 import { Prisma } from '@prisma/client';
+import slugify from 'slugify';
 
-/**
- * Service untuk mengelola Business Logic Kategori Edukasi.
- * Mengimplementasikan pemisahan tanggung jawab (Separation of Concerns) dari Controller.
- */
 @Injectable()
 export class EducationCategoryService {
     private readonly logger = new Logger(EducationCategoryService.name);
@@ -24,18 +20,24 @@ export class EducationCategoryService {
     // --- CREATE ---
 
     async create(dto: CreateCategoryDto) {
+        // 1. Generate Slug dari Nama
+        const slug = await this.generateUniqueSlug(dto.name);
+
         try {
+            // 2. Masukkan slug dan iconUrl ke payload Prisma
             const category = await this.prisma.educationCategory.create({
                 data: {
                     name: dto.name,
                     description: dto.description,
+                    slug: slug,
+                    iconUrl: dto.iconUrl,
+                    isActive: true,
                 },
             });
 
             this.logger.log(`Category created: ${category.name} (${category.id})`);
             return category;
         } catch (error) {
-            // Menangani Error Unik (P2002) - Nama Kategori Duplikat
             if (error instanceof Prisma.PrismaClientKnownRequestError) {
                 if (error.code === 'P2002') {
                     throw new ConflictException(`Category with name "${dto.name}" already exists.`);
@@ -49,8 +51,6 @@ export class EducationCategoryService {
     // --- READ (LIST) ---
 
     async findAll() {
-        // [OPTIMIZATION] Mengambil count modules untuk indikator di Dashboard Admin
-        // Admin bisa melihat kategori mana yang "gemuk" (banyak konten) atau "kosong".
         return this.prisma.educationCategory.findMany({
             include: {
                 _count: {
@@ -58,7 +58,7 @@ export class EducationCategoryService {
                 },
             },
             orderBy: {
-                name: 'asc',
+                displayOrder: 'asc',
             },
         });
     }
@@ -85,8 +85,14 @@ export class EducationCategoryService {
     // --- UPDATE ---
 
     async update(id: string, dto: UpdateCategoryDto) {
-        // Cek eksistensi sebelum update untuk pesan error yang lebih jelas (404 vs 500)
         await this.findOne(id);
+
+        // [FIX] Explicitly type slug as string OR undefined to fix TS2322
+        let slug: string | undefined;
+
+        if (dto.name) {
+            slug = await this.generateUniqueSlug(dto.name, id);
+        }
 
         try {
             const updatedCategory = await this.prisma.educationCategory.update({
@@ -94,13 +100,14 @@ export class EducationCategoryService {
                 data: {
                     name: dto.name,
                     description: dto.description,
+                    iconUrl: dto.iconUrl,
+                    slug: slug, // Prisma will ignore if undefined
                 },
             });
 
             this.logger.log(`Category updated: ${updatedCategory.id}`);
             return updatedCategory;
         } catch (error) {
-            // Handle Unique Constraint saat Update nama
             if (error instanceof Prisma.PrismaClientKnownRequestError) {
                 if (error.code === 'P2002') {
                     throw new ConflictException(`Category name "${dto.name}" is already taken.`);
@@ -111,18 +118,12 @@ export class EducationCategoryService {
         }
     }
 
-    // --- DELETE (CRITICAL INTEGRITY LOGIC) ---
+    // --- DELETE ---
 
-    /**
-     * Menghapus kategori dengan pemeriksaan Integritas Referensial yang ketat.
-     * Mencegah penghapusan jika kategori sedang digunakan oleh Modul Ajar (RESTRICT).
-     */
     async remove(id: string) {
-        // 1. Pre-Check Eksistensi
         await this.findOne(id);
 
         try {
-            // 2. Attempt Delete
             await this.prisma.educationCategory.delete({
                 where: { id },
             });
@@ -132,20 +133,41 @@ export class EducationCategoryService {
 
         } catch (error) {
             if (error instanceof Prisma.PrismaClientKnownRequestError) {
-                // [CRITICAL CHECK] P2003: Foreign Key Constraint Failed
-                // Ini terjadi karena di Schema Prisma relasi EducationModule -> Category
-                // diset (atau default) sebagai RESTRICT/NO ACTION, bukan CASCADE.
-                // Ini perilaku yang DIINGINKAN untuk Master Data.
                 if (error.code === 'P2003') {
                     this.logger.warn(`Integrity Violation: Attempt to delete used category ${id}`);
                     throw new ConflictException(
-                        'Cannot delete this category because it is currently assigned to one or more Education Modules. Please reassign or delete the modules first.'
+                        'Cannot delete this category because it is currently assigned to one or more Education Modules.'
                     );
                 }
             }
-
             this.logger.error(`Failed to delete category ${id}: ${error.message}`);
             throw new InternalServerErrorException('An unexpected error occurred while deleting the category.');
         }
+    }
+
+    // --- HELPER: Slug Generator ---
+
+    private async generateUniqueSlug(name: string, excludeId?: string): Promise<string> {
+        const baseSlug = slugify(name, { lower: true, strict: true });
+        let slug = baseSlug;
+        let counter = 1;
+        let isUnique = false;
+
+        while (!isUnique) {
+            // Cek apakah slug sudah ada
+            const existing = await this.prisma.educationCategory.findUnique({
+                where: { slug },
+                select: { id: true }
+            });
+
+            // Jika tidak ada, atau ada tapi itu adalah diri sendiri (kasus update), maka aman
+            if (!existing || (excludeId && existing.id === excludeId)) {
+                isUnique = true;
+            } else {
+                counter++;
+                slug = `${baseSlug}-${counter}`;
+            }
+        }
+        return slug;
     }
 }

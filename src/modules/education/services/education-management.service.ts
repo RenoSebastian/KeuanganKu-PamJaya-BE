@@ -277,6 +277,8 @@ export class EducationManagementService {
         const oldMediaSet = new Set<string>();
         if (existingQuiz) {
             existingQuiz.questions.forEach(q => {
+                // [FIXED] Accessing property yang baru ditambahkan di schema (imageUrl)
+                // TypeScript akan mengenali properti ini SETELAH `npx prisma generate`
                 if (q.imageUrl) oldMediaSet.add(q.imageUrl);
                 q.options.forEach(o => {
                     if (o.imageUrl) oldMediaSet.add(o.imageUrl);
@@ -335,15 +337,17 @@ export class EducationManagementService {
                             quizId: quiz.id,
                             questionText: q.questionText,
                             type: q.type,
+                            // [FIXED] Property ini sekarang valid (schema update)
                             imageUrl: q.imageUrl,
+                            points: q.points || 10,
                             orderIndex: q.orderIndex,
                             explanation: q.explanation,
-                            points: q.points || 10,
                             options: {
                                 createMany: {
                                     data: q.options.map((opt) => ({
                                         optionText: opt.optionText,
                                         isCorrect: opt.isCorrect,
+                                        // [FIXED] Property ini sekarang valid
                                         imageUrl: opt.imageUrl,
                                         orderIndex: opt.orderIndex
                                     })),
