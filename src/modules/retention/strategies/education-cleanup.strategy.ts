@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
-// [FIX] Perbaikan Path Relative Import (Naik 2 level ke src/modules -> masuk media)
 import { MediaStorageService } from '../../media/services/media-storage.service';
 import { PruneExecutionDto } from '../dto/prune-execution.dto';
 import { EducationModuleStatus } from '@prisma/client';
@@ -16,142 +15,122 @@ export class EducationCleanupStrategy implements RetentionStrategy {
     ) { }
 
     /**
-     * [INTERFACE COMPLIANCE] Method utama wajib bernama 'execute'.
-     * Menangani logika penghapusan modul pendidikan dan aset media terkait.
+     * [ATOMIC STRATEGY]
+     * Menggunakan Database Transaction untuk mencegah "Race Condition" (TOCTOU).
+     * Memastikan modul tidak dihapus jika ada user yang baru saja mulai mengerjakan (Progress created).
      */
     async execute(cutoffDate: Date, isDryRun: boolean = false): Promise<PruneExecutionDto> {
-        this.logger.log(`Executing Education Retention Strategy (DryRun: ${isDryRun}) with cutoff: ${cutoffDate.toISOString()}`);
+        this.logger.log(`Executing Atomic Education Retention (DryRun: ${isDryRun}) with cutoff: ${cutoffDate.toISOString()}`);
 
         const result = new PruneExecutionDto();
         result.entityType = 'EDUCATION_MODULE';
         result.executedAt = new Date();
         result.cutoffDate = cutoffDate.toISOString();
         result.strategyName = 'EducationCleanupStrategy';
-        // Token placeholder untuk output
         result.pruneToken = isDryRun ? 'DRY_RUN_MODE' : 'EXECUTED';
 
         try {
-            // 1. Identifikasi Semua Kandidat (Archived Old OR Stale Drafts)
+            // [STEP 1] Identification Phase (Read-Only / Non-Locking)
+            // Mencari kandidat awal untuk mengurangi scope locking nanti
             const staleDraftDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000); // 90 Hari lalu
 
-            const candidates = await this.prisma.educationModule.findMany({
+            const initialCandidates = await this.prisma.educationModule.findMany({
                 where: {
                     OR: [
-                        {
-                            status: EducationModuleStatus.ARCHIVED,
-                            updatedAt: { lte: cutoffDate },
-                        },
-                        {
-                            status: EducationModuleStatus.DRAFT,
-                            updatedAt: { lte: staleDraftDate },
-                        }
+                        { status: EducationModuleStatus.ARCHIVED, updatedAt: { lte: cutoffDate } },
+                        { status: EducationModuleStatus.DRAFT, updatedAt: { lte: staleDraftDate } }
                     ]
                 },
-                select: {
-                    id: true,
-                    thumbnailUrl: true, // Ambil info file cover
-                    sections: {
-                        select: { illustrationUrl: true } // Ambil info file section
-                    }
-                },
+                select: { id: true, title: true }
             });
 
-            if (candidates.length === 0) {
+            if (initialCandidates.length === 0) {
                 result.recordsDeleted = 0;
                 result.status = 'SUCCESS';
-                result.message = 'No education modules met the retention criteria.';
+                result.message = 'No candidates found.';
                 return result;
             }
 
-            const candidateIds = candidates.map(c => c.id);
+            // [STEP 2] Atomic Verification & Deletion (Critical Section)
+            // Kita bungkus logic 'Check & Delete' dalam satu transaksi
+            const transactionResult = await this.prisma.$transaction(async (tx) => {
+                const candidateIds = initialCandidates.map(c => c.id);
 
-            // 2. SAFETY CHECK: Cari modul yang punya data UserProgress (KPI Protection)
-            // Kita tidak boleh menghapus modul ini karena akan menghapus history belajar pegawai
-            const modulesWithProgress = await this.prisma.userEducationProgress.findMany({
-                where: {
-                    moduleId: { in: candidateIds }
-                },
-                select: { moduleId: true },
-                distinct: ['moduleId']
+                // 2a. Re-Check KPI Protection inside Transaction (Locking Logic)
+                // Query ini berjalan di dalam transaction scope (tx), sehingga melihat data snapshot yang konsisten
+                const activeProgress = await tx.userEducationProgress.findMany({
+                    where: { moduleId: { in: candidateIds } },
+                    select: { moduleId: true },
+                    distinct: ['moduleId']
+                });
+
+                const protectedIds = new Set(activeProgress.map(p => p.moduleId));
+                const safeToDeleteIds = candidateIds.filter(id => !protectedIds.has(id));
+
+                // Return early jika Dry Run atau tidak ada yang aman dihapus
+                if (isDryRun || safeToDeleteIds.length === 0) {
+                    return { safeToDeleteIds, count: 0, filesToDelete: [] };
+                }
+
+                // 2b. Collect File Paths BEFORE Deletion
+                // Kita harus ambil path file sebelum row DB dihapus
+                const modulesToDelete = await tx.educationModule.findMany({
+                    where: { id: { in: safeToDeleteIds } },
+                    select: {
+                        thumbnailUrl: true,
+                        sections: { select: { illustrationUrl: true } }
+                    }
+                });
+
+                const filesToDelete: string[] = [];
+                modulesToDelete.forEach(mod => {
+                    if (mod.thumbnailUrl) filesToDelete.push(mod.thumbnailUrl);
+                    mod.sections.forEach(sec => {
+                        if (sec.illustrationUrl) filesToDelete.push(sec.illustrationUrl);
+                    });
+                });
+
+                // 2c. Execute Hard Delete (DB Level)
+                // Karena relasi di schema sudah 'onDelete: Restrict' (sebagai safety net), 
+                // operasi ini akan gagal (rollback) jika logic filter di atas tembus (which is good).
+                const deleteOp = await tx.educationModule.deleteMany({
+                    where: { id: { in: safeToDeleteIds } }
+                });
+
+                return { safeToDeleteIds, count: deleteOp.count, filesToDelete };
+            }, {
+                maxWait: 5000, // Waktu tunggu dapat koneksi pool
+                timeout: 15000 // Waktu maksimal transaksi berjalan (DB Lock)
             });
 
-            const protectedModuleIds = new Set(modulesWithProgress.map(m => m.moduleId));
-
-            // Filter: Hanya hapus modul yang TIDAK ada di protected list
-            const modulesToDelete = candidates.filter(c => !protectedModuleIds.has(c.id));
-            const safeToDeleteIds = modulesToDelete.map(c => c.id);
-
-            // Logging skipped items
-            const skippedCount = candidateIds.length - safeToDeleteIds.length;
-            if (skippedCount > 0) {
-                this.logger.warn(`[SAFEGUARD] Skipped ${skippedCount} modules because they contain User KPI data.`);
-            }
-
-            // --- DRY RUN EXIT ---
+            // [STEP 3] Handle Result & Dry Run Exit
             if (isDryRun) {
                 result.recordsDeleted = 0;
-                result.recordsToPrune = safeToDeleteIds.length; // Info estimasi
+                result.recordsToPrune = transactionResult.safeToDeleteIds.length;
                 result.status = 'DRY_RUN';
-                result.message = `[DRY RUN] Found ${safeToDeleteIds.length} modules to prune. Skipped ${skippedCount} protected modules.`;
+                result.message = `[DRY RUN] Found ${transactionResult.safeToDeleteIds.length} safe modules to prune. Protected ${initialCandidates.length - transactionResult.safeToDeleteIds.length}.`;
                 return result;
             }
 
-            if (safeToDeleteIds.length === 0) {
-                result.recordsDeleted = 0;
-                result.status = 'SUCCESS';
-                result.message = 'Candidates found but all were protected by KPI safeguard.';
-                return result;
-            }
+            // [STEP 4] Return Data for Service-Level File Cleanup
+            // Database sudah bersih (Committed). Sekarang kita kembalikan list file
+            // agar Service bisa mencatatnya di Log (Idempotency) sebelum menghapus fisik file.
 
-            // 3. [DB EXECUTE] Hapus Data Database
-            // Lakukan delete DB dulu. Jika gagal, file fisik aman.
-            const deleteOp = await this.prisma.educationModule.deleteMany({
-                where: {
-                    id: { in: safeToDeleteIds }
-                }
-            });
+            result.recordsDeleted = transactionResult.count;
 
-            result.recordsDeleted = deleteOp.count;
-
-            // 4. [FILE CLEANUP] Hapus File Fisik (Async Post-Action)
-            // Mengumpulkan semua path file dari modul yang SUDAH dihapus datanya
-            const filesToDelete: string[] = [];
-
-            for (const mod of modulesToDelete) {
-                // Collect Module Thumbnail
-                if (mod.thumbnailUrl) {
-                    filesToDelete.push(mod.thumbnailUrl);
-                }
-                // Collect Section Illustrations
-                if (mod.sections) {
-                    mod.sections.forEach(sec => {
-                        if (sec.illustrationUrl) {
-                            filesToDelete.push(sec.illustrationUrl);
-                        }
-                    });
-                }
-            }
-
-            // Eksekusi penghapusan file secara paralel & aman (Promise.allSettled)
-            if (filesToDelete.length > 0) {
-                this.logger.log(`Pruning ${filesToDelete.length} physical assets associated with deleted modules...`);
-
-                const fileResults = await Promise.allSettled(
-                    filesToDelete.map(path => this.mediaService.deleteFile(path))
-                );
-
-                const successCount = fileResults.filter(r => r.status === 'fulfilled').length;
-                this.logger.log(`Physical cleanup complete. Deleted: ${successCount}/${filesToDelete.length} files.`);
-            }
+            // [PROTOCOL] Kita attach list file ke objek result. 
+            // Note: Property '_filesToDelete' tidak ada di DTO standar, 
+            // jadi kita cast ke any agar TS tidak complain, atau tambahkan di DTO jika mau proper.
+            (result as any)._filesToDelete = transactionResult.filesToDelete;
 
             result.status = 'SUCCESS';
-            result.message = `Deleted ${deleteOp.count} modules. Protected ${skippedCount} modules. Pruned ${filesToDelete.length} files.`;
+            result.message = `Successfully deleted ${transactionResult.count} modules from DB. Queued ${transactionResult.filesToDelete.length} files for cleanup.`;
 
         } catch (error) {
-            this.logger.error(`Retention execution failed: ${error.message}`, error.stack);
+            this.logger.error(`Atomic Retention Failed: ${error.message}`, error.stack);
             result.recordsDeleted = 0;
             result.status = 'FAILED';
-            result.message = error.message;
+            result.message = `Transaction Rollback: ${error.message}`;
         }
 
         return result;

@@ -400,23 +400,28 @@ model GoldPriceHistory {
   @@map("gold_price_histories")
 }
 
+// Update pada model RetentionLog
 model RetentionLog {
-  id         String @id @default(uuid())
-  executorId String @map("executor_id") // Admin yang eksekusi
+  id           String   @id @default(uuid())
+  executorId   String   @map("executor_id")
+  entityType   String   @map("entity_type")
+  
+  // [NEW] Status Eksekusi untuk Idempotency & Crash Recovery
+  // Values: 'STARTED', 'DB_DELETED', 'COMPLETED', 'FAILED'
+  status       String   @default("STARTED") 
+  
+  recordsDeleted Int      @default(0) @map("records_deleted")
+  cutoffDate     DateTime @map("cutoff_date")
+  
+  startedAt    DateTime @default(now()) @map("started_at")
+  completedAt  DateTime? @map("completed_at")
+  
+  // Metadata menyimpan list file yang "akan" dihapus untuk recovery jika crash
+  metadata     Json?    
 
-  entityType String @map("entity_type") // e.g., FINANCIAL_CHECKUP
-  action     String @default("PRUNE") // Enum: PRUNE, ARCHIVE
-
-  recordsDeleted Int      @map("records_deleted")
-  cutoffDate     DateTime @map("cutoff_date") // Data setua apa yang dihapus?
-
-  executedAt DateTime @default(now()) @map("executed_at")
-  metadata   Json? // Simpan detail lain (misal: duration, export_ref)
-
-  // Relasi
   executor User @relation(fields: [executorId], references: [id])
 
-  @@index([executedAt])
+  @@index([startedAt])
   @@map("retention_logs")
 }
 
@@ -518,7 +523,12 @@ model UserEducationProgress {
 
   // Relasi
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  module          EducationModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  
+  // [CRITICAL UPDATE] Mengubah onDelete menjadi Restrict.
+  // Ini mencegah penghapusan Modul jika masih ada user yang memiliki progress/history belajar.
+  // Strategi Retention harus menangani ini secara eksplisit (seperti yang sudah kita refactor).
+  module          EducationModule @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+  
   lastReadSection ModuleSection?  @relation(fields: [lastReadSectionId], references: [id])
 
   @@id([userId, moduleId])

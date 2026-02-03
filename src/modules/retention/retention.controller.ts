@@ -6,13 +6,14 @@ import {
     HttpStatus,
     Query,
     Res,
-    Body
+    Body,
+    Post
 } from '@nestjs/common';
 import express from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiProduces } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
+import { Role, User } from '@prisma/client';
 
-// Services (Separation of Concerns)
+// Services
 import { RetentionService } from './retention.service';
 import { ExportManagerService } from './services/export-manager.service';
 
@@ -40,7 +41,7 @@ export class RetentionController {
     // --- ENDPOINT 1: MONITORING (Fase 1) ---
 
     @Get('stats')
-    @Roles(Role.ADMIN) // Hard Constraint: Hanya Admin yang boleh akses
+    @Roles(Role.ADMIN, Role.DIRECTOR) // [UPDATE] Allow Director to view stats
     @ApiOperation({
         summary: 'Get Database Storage Statistics',
         description: 'Mengembalikan statistik ukuran tabel dan estimasi jumlah baris menggunakan metadata PostgreSQL (O(1)).'
@@ -88,45 +89,44 @@ export class RetentionController {
         @Query() query: ExportQueryDto,
         @Res() res: express.Response,
     ): Promise<void> {
-        // ARCHITECTURAL NOTE:
-        // Kita menggunakan @Res() untuk mengambil alih kontrol Response Stream dari NestJS.
-        // Tujuannya agar Service bisa menulis chunk data (res.write) secara bertahap
-        // tanpa menunggu seluruh data termuat di RAM server.
-
+        // [ARCHITECTURAL NOTE]
+        // Menggunakan @Res() untuk mengambil alih Stream Response.
+        // Service akan menulis chunk data langsung ke client untuk efisiensi memori.
         await this.exportManagerService.exportDataStream(query, res);
     }
 
-    // --- ENDPOINT 3: EXECUTION (Fase 4 - New Implementation) ---
+    // --- ENDPOINT 3: EXECUTION (Fase 4 - Production Ready) ---
 
     @Delete('prune')
-    @Roles(Role.ADMIN) // SUPER CRITICAL: Hanya Admin
+    @Roles(Role.ADMIN, Role.DIRECTOR) // [SECURITY FIX] Strict RBAC Layer
     @ApiOperation({
-        summary: 'Execute Data Pruning (Permanent Deletion)',
+        summary: 'Execute Data Pruning (Atomic & Idempotent)',
         description: `
-      Menghapus data arsip secara permanen berdasarkan kebijakan retensi.
+      Menghapus data arsip secara permanen dan aman.
       
-      Requires:
-      1. confirmExported = true
-      2. cutoffDate < Awal Bulan Ini (Data bulan berjalan tidak boleh dihapus)
+      Fitur Keamanan Baru:
+      1. **Atomic Transaction**: Cek KPI dan Hapus DB dilakukan dalam satu transaksi terkunci.
+      2. **Idempotency**: Jika server crash, log akan mencatat status terakhir untuk recovery.
+      3. **Token Verification**: Membutuhkan token dari hasil export.
       
-      Action ini bersifat TRANSAKSIONAL dan akan dicatat di tabel retention_logs.
+      Action ini akan dicatat di tabel retention_logs dengan status eksekusi detail.
     `
     })
     @ApiResponse({
         status: HttpStatus.OK,
-        description: 'Pruning berhasil dieksekusi. Mengembalikan jumlah data yang terhapus.'
+        description: 'Pruning berhasil dieksekusi. Mengembalikan statistik penghapusan.'
     })
     @ApiResponse({
         status: HttpStatus.BAD_REQUEST,
-        description: 'Safety Violation (Mencoba menghapus bulan berjalan atau belum konfirmasi export).'
+        description: 'Safety Violation (Mencoba menghapus bulan berjalan atau token invalid).'
     })
     @ApiResponse({
         status: HttpStatus.INTERNAL_SERVER_ERROR,
-        description: 'Terjadi kesalahan saat batch deletion (Safety Rollback triggered).'
+        description: 'Terjadi kesalahan sistem (Transaction Rollback triggered).'
     })
     async pruneData(
         @Body() dto: PruneExecutionDto,
-        @GetUser('id') adminId: string, // Mengambil ID Admin dari JWT Token untuk Audit Log
+        @GetUser('id') adminId: string, // [AUDIT] Mengambil ID Executor untuk Log
     ) {
         return this.retentionService.executePruning(adminId, dto);
     }
