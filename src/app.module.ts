@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ScheduleModule } from '@nestjs/schedule'; // [PHASE 4] Cron Support
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { WinstonModule } from 'nest-winston';
 import { ServeStaticModule } from '@nestjs/serve-static';
@@ -15,7 +15,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 
 // --- Feature Modules ---
-import { PrismaModule } from '../prisma/prisma.module'; // Import dari root prisma folder
+import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { FinancialModule } from './modules/financial/financial.module';
@@ -40,14 +40,19 @@ import { MediaModule } from './modules/media/media.module';
     ScheduleModule.forRoot(),
 
     /**
-     * 2. STATIC FILE SERVING
+     * 2. STATIC FILE SERVING [FIXED]
      * Mengizinkan akses publik ke folder uploads.
      * URL: http://host:port/api/uploads/{filename}
      */
     ServeStaticModule.forRoot({
-      rootPath: path.join(__dirname, '..', 'uploads'), // Point ke root/uploads
-      serveRoot: '/api/uploads', // URL Prefix
-      exclude: ['/api/(.*)'], // Jangan tangkap route API lain
+      // [FIX] Gunakan process.cwd() agar aman saat production/build (menunjuk ke root project)
+      rootPath: path.join(process.cwd(), 'uploads'),
+
+      // URL Prefix untuk akses file
+      serveRoot: '/api/uploads',
+
+      // [FIX] HAPUS property 'exclude'. 
+      // Karena serveRoot sudah spesifik '/api/uploads', ia tidak akan memakan route '/api/auth' dll.
     }),
 
     // 3. Database
