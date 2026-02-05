@@ -480,15 +480,11 @@ export const calculatePMT = (rate: number, nper: number, pv: number, fv: number 
   return -(rate * (fv + (pv * pvif))) / ((pvif - 1) * (1 + rate * type));
 };
 
-// ============================================================================
-// 3. CALCULATOR MODULES (Logic for Pension, Education, Insurance, Goals)
-// ============================================================================
-
 /**
- * LOGIKA: DANA PENSIUN (UPDATED VERSION)
- * Menggunakan Algoritma PV Annuity Due dengan Nett Rate (Sesuai Excel Referensi)
- * - Menghitung kebutuhan dana berdasarkan selisih bunga investasi dan inflasi.
- * - Tabungan bulanan dihitung dari Annual Sinking Fund dibagi 12.
+ * LOGIKA: DANA PENSIUN (CUSTOM LOGIC)
+ * - Future Expense: Inflated Value (Nominal)
+ * - Existing Fund Growth: Fixed 5.5%
+ * - Target Fund: Menggunakan PVAD dengan Nett Rate terhadap Inflated Expense
  */
 export const calculatePensionPlan = (data: CreatePensionDto) => {
   const {
@@ -501,81 +497,62 @@ export const calculatePensionPlan = (data: CreatePensionDto) => {
     returnRate = 8
   } = data;
 
-  // --- 1. SETUP VARIABEL WAKTU ---
+  // --- 1. SETUP WAKTU ---
   const yearsToRetire = retirementAge - currentAge;
   const retirementDuration = lifeExpectancy - retirementAge;
 
-  if (yearsToRetire <= 0) {
-    throw new Error("Usia pensiun harus lebih besar dari usia sekarang");
-  }
-  if (retirementDuration <= 0) {
-    throw new Error("Usia harapan hidup harus lebih besar dari usia pensiun");
-  }
+  if (yearsToRetire <= 0) throw new Error("Usia pensiun harus lebih besar dari usia sekarang");
+  if (retirementDuration <= 0) throw new Error("Usia harapan hidup harus lebih besar dari usia pensiun");
 
-  // --- 2. KONVERSI RATE KE DESIMAL ---
-  const iRate = inflationRate / 100; // Inflasi (ex: 0.04)
-  const rRate = returnRate / 100;    // Return Investasi (ex: 0.08)
-
-  // Hitung Nett Rate (Selisih bunga) untuk masa pensiun
-  // Sesuai Excel: r_nett = r_invest - r_inflasi
+  // --- 2. SETUP RATE ---
+  const iRate = inflationRate / 100;
+  const rRate = returnRate / 100;
   const nettRate = rRate - iRate;
 
-  // --- 3. HITUNG BIAYA HIDUP NANTI (FV Expense) ---
-  // Excel menggunakan basis Tahunan. 
-  // Rumus: BiayaSekarang * (1 + inflasi)^TahunMenujuPensiun
+  // --- 3. HITUNG BIAYA HIDUP NANTI (FUTURE VALUE) ---
   const annualExpenseCurrent = currentExpense * 12;
+
+  // [UPDATED] Mengalikan biaya hidup saat ini dengan inflasi sampai usia pensiun
   const futureAnnualExpense = annualExpenseCurrent * Math.pow(1 + iRate, yearsToRetire);
 
-  // --- 4. HITUNG TOTAL DANA YANG DIBUTUHKAN (NEST EGG / TOTAL FUND) ---
-  // Menggunakan Rumus "Present Value of Annuity Due" (PVAD)
-  // Dana ini dibutuhkan di awal masa pensiun untuk membiayai hidup selama X tahun (retirementDuration)
-  // dengan asumsi uang sisa tetap tumbuh sebesar nettRate.
-  // Rumus: PMT * [ (1 - (1+r)^-n) / r ] * (1+r)
-  // Note: Jika nettRate 0, gunakan rumus simplifikasi (PMT * n)
-
+  // --- 4. HITUNG TOTAL DANA YANG DIBUTUHKAN (TARGET) ---
   let totalFundNeeded = 0;
   if (nettRate === 0) {
     totalFundNeeded = futureAnnualExpense * retirementDuration;
   } else {
+    // PV Annuity Due dengan Nett Rate
     const pvadFactor = (1 - Math.pow(1 + nettRate, -retirementDuration)) / nettRate;
     totalFundNeeded = futureAnnualExpense * pvadFactor * (1 + nettRate);
   }
 
-  // --- 5. HITUNG NILAI MASA DEPAN ASET SAAT INI (FV Existing Fund) ---
-  // Rumus: ModalAwal * (1 + Return)^Tahun
-  const fvExistingFund = currentSaving * Math.pow(1 + rRate, yearsToRetire);
+  // --- 5. HITUNG FV SALDO AWAL (ASET LAMA) ---
+  // [UPDATED] Fixed Growth Rate 5.5% untuk aset lama sesuai request
+  const fixedExistingFundRate = 0.055; // 5.5%
+  const fvExistingFund = currentSaving * Math.pow(1 + fixedExistingFundRate, yearsToRetire);
 
-  // --- 6. HITUNG KEKURANGAN DANA (SHORTFALL) ---
-  // Ini target dana bersih yang harus dikumpulkan lewat tabungan baru
-  // Pastikan tidak negatif (kalau aset sudah cukup, shortfall 0)
+  // --- 6. HITUNG KEKURANGAN (SHORTFALL) ---
   const shortfall = Math.max(0, totalFundNeeded - fvExistingFund);
 
-  // --- 7. HITUNG TABUNGAN RUTIN (PMT) ---
-  // Menggunakan rumus Sinking Fund Tahunan lalu dibagi 12
-  // Rumus PMT: FV * r / ((1+r)^n - 1)
-
+  // --- 7. HITUNG TABUNGAN BULANAN (PMT) ---
   let annualSaving = 0;
   if (shortfall > 0) {
-    if (rRate === 0) {
+    if (nettRate === 0) {
       annualSaving = shortfall / yearsToRetire;
     } else {
-      const sinkingFundFactor = Math.pow(1 + rRate, yearsToRetire) - 1;
-      annualSaving = (shortfall * rRate) / sinkingFundFactor;
+      // Future Value of Annuity factor (untuk menghitung berapa yg harus ditabung)
+      const sinkingFundFactor = Math.pow(1 + nettRate, yearsToRetire) - 1;
+      annualSaving = (shortfall * nettRate) / sinkingFundFactor;
     }
   }
 
-  const monthlySaving = annualSaving / 12;
-
-  // --- RETURN HASIL ---
   return {
     yearsToRetire,
     retirementDuration,
-    // Return monthly untuk konsistensi UI, tapi dihitung dari annual logic
-    futureMonthlyExpense: futureAnnualExpense / 12,
-    totalFundNeeded, // Ini Gross Need (PVAD) sesuai Excel cell 1.2
-    fvExistingFund,  // Nilai aset nanti (Excel 1.3)
-    shortfall,       // Kekurangan (Excel "Dana Hari Tua" di sheet Calc)
-    monthlySaving    // Hasil akhir (Excel "Tabungan bulanan")
+    futureMonthlyExpense: futureAnnualExpense / 12, // Nilai di masa depan (sudah kena inflasi)
+    totalFundNeeded,
+    fvExistingFund,
+    shortfall,
+    monthlySaving: annualSaving / 12
   };
 };
 

@@ -36,7 +36,7 @@ function getImageBase64(filePath: string): string {
 const ASSET_BASE_PATH = path.join(process.cwd(), 'src/assets/images');
 
 const assets = {
-  logoMaxiPro: getImageBase64(path.join(ASSET_BASE_PATH, 'maxipro.webp')),
+  logoMaxiPro: getImageBase64(path.join(ASSET_BASE_PATH, 'logokeuanganku.png')),
   headerImg1: getImageBase64(path.join(ASSET_BASE_PATH, 'rancanganggaran1.webp')),
   headerImg2: getImageBase64(path.join(ASSET_BASE_PATH, 'rancanganggaran2.webp'))
 };

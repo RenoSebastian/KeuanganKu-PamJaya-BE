@@ -333,14 +333,43 @@ export class PdfGeneratorService implements OnModuleInit, OnModuleDestroy {
         const lifeExpectancy = num(data.lifeExpectancy);
         const currentExpense = num(data.currentExpense);
         const currentSaving = num(data.currentSaving);
+
+        // Konversi Rate
         const inflationRate = num(data.inflationRate) / 100;
         const returnRate = num(data.returnRate) / 100;
 
+        // [UPDATE] Hitung Nett Rate (Bunga Bersih)
+        // Agar perhitungan aset dan kebutuhan dana menggunakan "Nilai Riil" (Daya Beli)
+        const nettRate = returnRate - inflationRate;
+
+        // Hitung Periode Waktu
         const yearsToRetire = retirementAge - currentAge;
         const retirementDuration = lifeExpectancy - retirementAge;
-        const futureMonthlyExpense = currentExpense * Math.pow(1 + inflationRate, yearsToRetire);
-        const fvExistingFund = currentSaving * Math.pow(1 + returnRate, yearsToRetire);
-        const totalFundNeeded = num(data.totalFundNeeded) > 0 ? num(data.totalFundNeeded) : (futureMonthlyExpense * 12 * retirementDuration);
+
+        // [UPDATE] Future Expense (Real Value)
+        // Tidak perlu dikali inflasi, karena kita menggunakan daya beli hari ini.
+        const futureMonthlyExpense = currentExpense;
+
+        // [UPDATE] FV Existing Fund (Saldo Awal)
+        // Menggunakan nettRate (7%) bukan returnRate (12%). 
+        // Ini yang akan mengubah hasil dari 8.5M menjadi ~2.7M di laporan PDF.
+        const fvExistingFund = currentSaving * Math.pow(1 + nettRate, yearsToRetire);
+
+        // Ambil Total Fund Needed dari Database (karena sudah dihitung benar oleh Controller)
+        // Jika kosong (fallback), hitung ulang sederhana berdasarkan Real Value
+        let totalFundNeeded = num(data.totalFundNeeded);
+
+        // Fallback calculation (jika data DB corrupt/kosong)
+        if (totalFundNeeded <= 0) {
+            if (nettRate === 0) {
+                totalFundNeeded = futureMonthlyExpense * 12 * retirementDuration;
+            } else {
+                // PVAD Formula
+                const pvadFactor = (1 - Math.pow(1 + nettRate, -retirementDuration)) / nettRate;
+                totalFundNeeded = futureMonthlyExpense * 12 * pvadFactor * (1 + nettRate);
+            }
+        }
+
         const shortfall = Math.max(0, totalFundNeeded - fvExistingFund);
 
         const userProfile = data.user || {};
@@ -361,7 +390,9 @@ export class PdfGeneratorService implements OnModuleInit, OnModuleDestroy {
             calc: {
                 yearsToRetire: yearsToRetire,
                 retirementDuration: retirementDuration,
+                // Di PDF nanti labelnya sebaiknya: "Pengeluaran Setara Hari Ini"
                 futureMonthlyExpense: fmt(futureMonthlyExpense),
+                // Ini akan tampil 2.7M
                 fvExistingFund: fmt(fvExistingFund),
                 totalFundNeeded: fmt(totalFundNeeded),
                 shortfall: fmt(shortfall)
