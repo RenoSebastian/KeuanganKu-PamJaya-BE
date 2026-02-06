@@ -8,6 +8,10 @@ import { CreateGoalDto, SimulateGoalDto } from './dto/create-goal.dto';
 import { CreateEducationPlanDto } from './dto/create-education.dto';
 import { SchoolLevel, CostType, HealthStatus } from '@prisma/client';
 
+// [NEW] Imports untuk Risk Profile Feature (Stateless)
+import { CalculateRiskProfileDto } from './dto/calculate-risk-profile.dto';
+import { RiskProfileResponseDto } from './dto/risk-profile-response.dto';
+
 import {
   calculateFinancialHealth,
   calculatePensionPlan,
@@ -16,6 +20,7 @@ import {
   calculateGoalSimulation,
   calculateEducationPlan,
   calculateBudgetSplit,
+  calculateRiskProfileAnalysis, // <--- [UPDATED] Import Utility Baru
 } from './utils/financial-math.util';
 
 @Injectable()
@@ -188,7 +193,6 @@ export class FinancialService {
     };
   }
 
-
   // ===========================================================================
   // MODULE 2: BUDGET PLAN (The "Monthly" Plan)
   // ===========================================================================
@@ -297,10 +301,6 @@ export class FinancialService {
   // MODULE 4: CALCULATOR - INSURANCE PLAN (UPDATED LOGIC)
   // ===========================================================================
 
-  // ===========================================================================
-  // MODULE 4: CALCULATOR - INSURANCE PLAN (UPDATED LOGIC)
-  // ===========================================================================
-
   async calculateAndSaveInsurance(userId: string, dto: CreateInsuranceDto) {
     /**
      * 1. Hitung Kebutuhan UP menggunakan Math Utility.
@@ -344,7 +344,7 @@ export class FinancialService {
      */
     return { plan, calculation: result };
   }
-  
+
   // ===========================================================================
   // MODULE 5: CALCULATOR - GOAL PLAN (NEW)
   // ===========================================================================
@@ -440,6 +440,28 @@ export class FinancialService {
     return { plan: savedData, calculation: result };
   }
 
+  // ===========================================================================
+  // MODULE 7: RISK PROFILE CALCULATOR (STATELESS)
+  // ===========================================================================
+  // Implementasi: Menerima jawaban, memanggil utility, mengembalikan JSON.
+  // Tidak menyimpan ke database (Stateless) agar ringan dan privasi terjaga.
+  // ===========================================================================
+
+  calculateRiskProfile(dto: CalculateRiskProfileDto): RiskProfileResponseDto {
+    // 1. Panggil Logic Pure Function dari Utility
+    //    Ini menjaga Service tetap bersih dan logika terpusat di math util.
+    const analysis = calculateRiskProfileAnalysis(dto.answers);
+
+    // 2. Construct Response (Tambahkan Metadata)
+    return {
+      calculatedAt: new Date().toISOString(),
+      clientName: dto.clientName, // Echo balik nama klien
+      totalScore: analysis.totalScore,
+      riskProfile: analysis.profile,
+      riskDescription: analysis.description,
+      allocation: analysis.allocation,
+    };
+  }
 
   // --- PRIVATE HELPERS ---
   private analyzeBudgetHealth(dto: CreateBudgetDto) {

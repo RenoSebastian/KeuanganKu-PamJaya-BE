@@ -1,6 +1,8 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
 import * as handlebars from 'handlebars';
+
+// Existing Templates
 import { checkupReportTemplate } from '../templates/checkup-report.template';
 import { budgetReportTemplate } from '../templates/budget-report.template';
 import { pensionReportTemplate } from '../templates/pension-report.template';
@@ -8,6 +10,10 @@ import { insuranceReportTemplate } from '../templates/insurance-report.template'
 import { goalReportTemplate } from '../templates/goals-report.template';
 import { educationReportTemplate } from '../templates/education-report.template';
 import { historyCheckupReportTemplate } from '../templates/history-checkup-report.template';
+
+// [NEW] Template untuk Risk Profile
+import { riskProfileReportTemplate } from '../templates/risk-profile-report.template';
+
 import { calculateInsurancePlan } from '../utils/financial-math.util';
 
 @Injectable()
@@ -194,6 +200,14 @@ export class PdfGeneratorService implements OnModuleInit, OnModuleDestroy {
     async generateHistoryCheckupPdf(data: any): Promise<Buffer> {
         const template = handlebars.compile(historyCheckupReportTemplate);
         const context = this.mapHistoryCheckupData(data);
+        const html = template(context);
+        return this.generatePdfCore(html, context);
+    }
+
+    // [NEW] Method Public untuk Risk Profile PDF
+    async generateRiskProfilePdf(data: any): Promise<Buffer> {
+        const template = handlebars.compile(riskProfileReportTemplate);
+        const context = this.mapRiskProfileData(data);
         const html = template(context);
         return this.generatePdfCore(html, context);
     }
@@ -679,6 +693,38 @@ export class PdfGeneratorService implements OnModuleInit, OnModuleDestroy {
             warningCount: (analysis.ratios || []).filter((r: any) => !r.statusColor.includes('GREEN')).length,
 
             ratioPages: ratioPages
+        };
+    }
+
+    // [NEW] Mapper untuk Risk Profile Data
+    private mapRiskProfileData(data: any) {
+        // Data input adalah RiskProfileResponseDto
+
+        // Tentukan warna tema berdasarkan profil
+        let themeColor = '#eab308'; // Default Moderat (Kuning)
+        if (data.riskProfile === 'Konservatif') themeColor = '#22c55e'; // Hijau
+        if (data.riskProfile === 'Agresif') themeColor = '#ef4444'; // Merah
+
+        return {
+            generatedAt: new Date(data.calculatedAt).toLocaleDateString('id-ID', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            }),
+            clientName: data.clientName,
+
+            // Core Results
+            score: data.totalScore,
+            profile: data.riskProfile, // String: Konservatif/Moderat/Agresif
+            description: data.riskDescription,
+            themeColor: themeColor,
+
+            // Allocation for Chart & Table
+            allocation: {
+                low: data.allocation.lowRisk,
+                medium: data.allocation.mediumRisk,
+                high: data.allocation.highRisk
+            }
         };
     }
 }

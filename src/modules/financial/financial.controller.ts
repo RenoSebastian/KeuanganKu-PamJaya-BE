@@ -9,10 +9,12 @@ import {
   Req,
   Res,
   NotFoundException,
+  Header,
+  StreamableFile,
 } from '@nestjs/common';
 import * as express from 'express'; // [FIXED] Import express secara eksplisit
 import { PdfGeneratorService } from './services/pdf-generator.service';
-import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { FinancialService } from './financial.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 
@@ -24,6 +26,10 @@ import { CreateInsuranceDto } from './dto/create-insurance.dto';
 import { CreateGoalDto, SimulateGoalDto } from './dto/create-goal.dto';
 import { CreateEducationPlanDto } from './dto/create-education.dto';
 
+// [NEW] DTOs for Risk Profile
+import { CalculateRiskProfileDto } from './dto/calculate-risk-profile.dto';
+import { RiskProfileResponseDto } from './dto/risk-profile-response.dto';
+
 // --- GUARDS ---
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GetUser } from 'src/common/decorators/get-user.decorator';
@@ -33,6 +39,8 @@ import { GetUser } from 'src/common/decorators/get-user.decorator';
 @ApiBearerAuth()
 @Controller('financial')
 export class FinancialController {
+  pdfGeneratorService: any;
+  auditService: any;
   constructor(
     private readonly financialService: FinancialService,
     private readonly pdfservice: PdfGeneratorService,
@@ -359,4 +367,62 @@ export class FinancialController {
     });
     res.end(buffer);
   }
+
+
+  // ===========================================================================
+  // MODULE 7: RISK PROFILE (STATELESS SIMULATION)
+  // ===========================================================================
+
+  @Post('simulation/risk-profile')
+  @ApiOperation({
+    summary: 'Kalkulasi Profil Risiko (Stateless)',
+    description:
+      'Menerima jawaban kuesioner, mengembalikan skor, tipe profil, dan rekomendasi alokasi aset. Data tidak disimpan ke database.',
+  })
+  @ApiResponse({ status: 200, type: RiskProfileResponseDto })
+  calculateRiskProfile(@Body() dto: CalculateRiskProfileDto): RiskProfileResponseDto {
+    // Memanggil Pure Function di Service
+    return this.financialService.calculateRiskProfile(dto);
+  }
+
+  @Post('export/risk-profile-pdf')
+  @ApiOperation({
+    summary: 'Generate PDF Laporan Profil Risiko',
+    description:
+      'Menerima Object Hasil Kalkulasi (RiskProfileResponseDto) dan menghasilkan file PDF untuk diunduh.',
+  })
+  @Header('Content-Type', 'application/pdf')
+  @Header('Content-Disposition', 'attachment; filename="Risk_Profile_Report.pdf"')
+  async exportRiskProfilePdf(
+    @GetUser('id') userId: string,
+    @Body() data: RiskProfileResponseDto, // Menerima full JSON result dari Frontend
+    @Res({ passthrough: true }) res: express.Response,
+  ): Promise<StreamableFile> {
+
+    // 1. Generate PDF Buffer
+    const pdfBuffer = await this.pdfGeneratorService.generateRiskProfilePdf(data);
+
+    // 2. Setup Filename yang deskriptif
+    const cleanName = data.clientName.replace(/[^a-zA-Z0-9]/g, '_');
+    const filename = `RiskProfile_${cleanName}_${new Date().getTime()}.pdf`;
+
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': pdfBuffer.length,
+    });
+
+    // 3. Audit Log (PENTING: Mencatat aktivitas Agen mencetak laporan)
+    await this.auditService.logActivity({
+      userId,
+      action: 'EXPORT_PDF',
+      entity: 'RiskProfileSimulation', // Virtual Entity
+      entityId: 'STATELESS',
+      details: `Agent generated Risk Profile PDF for client: ${data.clientName} (Profile: ${data.riskProfile})`,
+    });
+
+    // 4. Return Stream
+    return new StreamableFile(pdfBuffer);
+  }
 }
+
