@@ -52,4 +52,14 @@ export class EditUserDto {
   @IsOptional()
   @IsString()
   agentLevel?: string;
+
+  @ApiPropertyOptional({ description: 'Nama Perusahaan Induk (e.g. PT Asuransi Allianz Life)' })
+  @IsOptional()
+  @IsString()
+  companyName?: string;
+
+  @ApiPropertyOptional({ description: 'Tujuan atau Goals User (Free Text)' })
+  @IsOptional()
+  @IsString()
+  goals?: string;
 }

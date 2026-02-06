@@ -106,6 +106,8 @@ model User {
   address      String?   @db.Text    // Alamat Domisili (Text agar muat panjang)
   agencyName   String?   @map("agency_name") // Nama Perusahaan Agen (PT Asuransi X)
   agentLevel   String?   @map("agent_level") // Jabatan (Agent, Senior Agent, Manager)
+  companyName String? @map("company_name") // Nama Perusahaan (Parent Company)
+  goals       String? @db.Text             // Tujuan/Goals (Text Input)
   // ---------------------------------------------
 
   // Avatar Field

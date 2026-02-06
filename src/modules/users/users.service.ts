@@ -207,6 +207,10 @@ export class UsersService {
         agencyName: user.agencyName,
         address: user.address,
         gender: user.gender,
+
+        // [NEW] Field Perusahaan & Goals (Agar searchable)
+        companyName: user.companyName,
+        goals: user.goals,
       };
 
       // Fire & Forget sync
