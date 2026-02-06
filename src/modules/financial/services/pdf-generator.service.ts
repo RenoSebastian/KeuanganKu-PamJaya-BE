@@ -206,6 +206,9 @@ export class PdfGeneratorService implements OnModuleInit, OnModuleDestroy {
 
     // [NEW] Method Public untuk Risk Profile PDF
     async generateRiskProfilePdf(data: any): Promise<Buffer> {
+        // [SAFETY LOG] Debugging data yang masuk
+        this.logger.debug(`Generating Risk Profile PDF for: ${data?.clientName}`);
+
         const template = handlebars.compile(riskProfileReportTemplate);
         const context = this.mapRiskProfileData(data);
         const html = template(context);
@@ -696,34 +699,43 @@ export class PdfGeneratorService implements OnModuleInit, OnModuleDestroy {
         };
     }
 
-    // [NEW] Mapper untuk Risk Profile Data
+    // [UPDATED] Mapper untuk Risk Profile Data dengan Null Safety
+    // Mencegah error "Cannot read properties of undefined" jika data allocation kosong
     private mapRiskProfileData(data: any) {
-        // Data input adalah RiskProfileResponseDto
+        // Data input adalah RiskProfileResponseDto (bisa saja partial/stripped jika validator tidak lolos)
+
+        // Safety Check 1: Pastikan data tidak null/undefined
+        const safeData = data || {};
+
+        // Safety Check 2: Pastikan properti allocation ada, jika tidak, gunakan default
+        const safeAllocation = safeData.allocation || { lowRisk: 0, mediumRisk: 0, highRisk: 0 };
 
         // Tentukan warna tema berdasarkan profil
         let themeColor = '#eab308'; // Default Moderat (Kuning)
-        if (data.riskProfile === 'Konservatif') themeColor = '#22c55e'; // Hijau
-        if (data.riskProfile === 'Agresif') themeColor = '#ef4444'; // Merah
+        if (safeData.riskProfile === 'Konservatif') themeColor = '#22c55e'; // Hijau
+        if (safeData.riskProfile === 'Agresif') themeColor = '#ef4444'; // Merah
 
         return {
-            generatedAt: new Date(data.calculatedAt).toLocaleDateString('id-ID', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-            }),
-            clientName: data.clientName,
+            generatedAt: safeData.calculatedAt
+                ? new Date(safeData.calculatedAt).toLocaleDateString('id-ID', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                })
+                : '-', // Fallback date
+            clientName: safeData.clientName || 'Tanpa Nama',
 
             // Core Results
-            score: data.totalScore,
-            profile: data.riskProfile, // String: Konservatif/Moderat/Agresif
-            description: data.riskDescription,
+            score: safeData.totalScore || 0,
+            profile: safeData.riskProfile || 'Unknown', // String: Konservatif/Moderat/Agresif
+            description: safeData.riskDescription || 'Tidak ada deskripsi tersedia.',
             themeColor: themeColor,
 
-            // Allocation for Chart & Table
+            // Allocation for Chart & Table (Safe Access)
             allocation: {
-                low: data.allocation.lowRisk,
-                medium: data.allocation.mediumRisk,
-                high: data.allocation.highRisk
+                low: safeAllocation.lowRisk || 0,
+                medium: safeAllocation.mediumRisk || 0,
+                high: safeAllocation.highRisk || 0
             }
         };
     }

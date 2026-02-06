@@ -11,14 +11,18 @@ import {
   NotFoundException,
   Header,
   StreamableFile,
+  ParseUUIDPipe,
 } from '@nestjs/common';
-import * as express from 'express'; // [FIXED] Import express secara eksplisit
-import { PdfGeneratorService } from './services/pdf-generator.service';
+import * as express from 'express';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { FinancialService } from './financial.service';
-import { PrismaService } from '../../../prisma/prisma.service';
 
-// --- IMPORT DTOs ---
+// Services
+import { FinancialService } from './financial.service';
+import { PdfGeneratorService } from './services/pdf-generator.service';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service'; // [FIX] Import AuditService
+
+// DTOs
 import { CreateBudgetDto } from './dto/create-budget.dto';
 import { CreateFinancialRecordDto } from './dto/create-financial-record.dto';
 import { CreatePensionDto } from './dto/create-pension.dto';
@@ -26,25 +30,24 @@ import { CreateInsuranceDto } from './dto/create-insurance.dto';
 import { CreateGoalDto, SimulateGoalDto } from './dto/create-goal.dto';
 import { CreateEducationPlanDto } from './dto/create-education.dto';
 
-// [NEW] DTOs for Risk Profile
+// DTOs for Risk Profile
 import { CalculateRiskProfileDto } from './dto/calculate-risk-profile.dto';
 import { RiskProfileResponseDto } from './dto/risk-profile-response.dto';
 
-// --- GUARDS ---
+// Guards
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { GetUser } from 'src/common/decorators/get-user.decorator';
+import { GetUser } from '../../common/decorators/get-user.decorator';
 
 @ApiTags('Financial Engine')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 @Controller('financial')
 export class FinancialController {
-  pdfGeneratorService: any;
-  auditService: any;
   constructor(
     private readonly financialService: FinancialService,
-    private readonly pdfservice: PdfGeneratorService,
-    private readonly prisma: PrismaService
+    private readonly pdfGeneratorService: PdfGeneratorService, // [FIX] Renamed from pdfservice to match usage
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService, // [FIX] Injected AuditService properly
   ) { }
 
   // ===========================================================================
@@ -53,38 +56,37 @@ export class FinancialController {
 
   @Post('checkup')
   @ApiOperation({ summary: 'Simpan Data Checkup & Jalankan Analisa' })
-  async createCheckup(@Req() req, @Body() dto: CreateFinancialRecordDto) {
-    const userId = req.user.id;
-    return this.financialService.createCheckup(userId, dto);
+  async createCheckup(@GetUser('id') userId: string, @Body() dto: CreateFinancialRecordDto) {
+    const result = await this.financialService.createCheckup(userId, dto);
+    return result;
   }
 
   @Get('checkup/latest')
   @ApiOperation({ summary: 'Ambil data checkup terakhir' })
-  async getLatestCheckup(@Req() req) {
-    const userId = req.user.id;
+  async getLatestCheckup(@GetUser('id') userId: string) {
     return this.financialService.getLatestCheckup(userId);
   }
 
   @Get('checkup/history')
   @ApiOperation({ summary: 'Ambil riwayat checkup user' })
-  async getCheckupHistory(@Req() req) {
-    const userId = req.user.id;
+  async getCheckupHistory(@GetUser('id') userId: string) {
     return this.financialService.getCheckupHistory(userId);
   }
 
   // [NEW] Endpoint Detail Checkup (Roadmap Part 1)
   @Get('checkup/detail/:id')
   @ApiOperation({ summary: 'Ambil detail checkup spesifik berdasarkan ID' })
-  async getCheckupDetail(@Req() req, @Param('id') id: string) {
-    const userId = req.user.id;
+  async getCheckupDetail(@GetUser('id') userId: string, @Param('id') id: string) {
     return this.financialService.getCheckupDetail(userId, id);
   }
 
   @Get('checkup/pdf/:id')
   @ApiOperation({ summary: 'Download PDF Report (Server-Side Generated)' })
-  async downloadCheckupPdf(@Param('id') id: string, @Req() req, @Res() res: express.Response) {
-    const userId = req.user.id;
-
+  async downloadCheckupPdf(
+    @Param('id') id: string,
+    @GetUser('id') userId: string,
+    @Res() res: express.Response
+  ) {
     // 1. Ambil Data (Reuse logic getCheckupDetail)
     const checkupData = await this.financialService.getLatestCheckup(userId);
     // *Atau getCheckupDetail(userId, id) jika ingin spesifik history*
@@ -92,7 +94,8 @@ export class FinancialController {
     if (!checkupData) throw new NotFoundException('Data not found');
 
     // 2. Generate PDF
-    const buffer = await this.pdfservice.generateCheckupPdf(checkupData);
+    // [FIX] Updated to use pdfGeneratorService
+    const buffer = await this.pdfGeneratorService.generateCheckupPdf(checkupData);
 
     // 3. Stream Response
     res.set({
@@ -109,7 +112,6 @@ export class FinancialController {
   @ApiOperation({ summary: 'Download Budget PDF Report' })
   async downloadBudgetPdf(@Param('id') id: string, @Res() res: express.Response) {
     // 1. Ambil Data Budget + User Profile
-    // [FIX] Hapus include 'userProfile', cukup include 'user' karena fullName & dateOfBirth ada di tabel User
     const budgetData = await this.prisma.budgetPlan.findUnique({
       where: { id },
       include: {
@@ -120,7 +122,8 @@ export class FinancialController {
     if (!budgetData) throw new NotFoundException('Data budget tidak ditemukan');
 
     // 2. Generate PDF
-    const buffer = await this.pdfservice.generateBudgetPdf(budgetData);
+    // [FIX] Updated to use pdfGeneratorService
+    const buffer = await this.pdfGeneratorService.generateBudgetPdf(budgetData);
 
     // 3. Return Stream
     res.set({
@@ -146,7 +149,8 @@ export class FinancialController {
     if (!pensionData) throw new NotFoundException('Data rencana pensiun tidak ditemukan');
 
     // 2. Generate PDF
-    const buffer = await this.pdfservice.generatePensionPdf(pensionData);
+    // [FIX] Updated to use pdfGeneratorService
+    const buffer = await this.pdfGeneratorService.generatePensionPdf(pensionData);
 
     // 3. Return Stream
     res.set({
@@ -170,7 +174,8 @@ export class FinancialController {
 
     if (!insuranceData) throw new NotFoundException('Data rencana asuransi tidak ditemukan');
 
-    const buffer = await this.pdfservice.generateInsurancePdf(insuranceData);
+    // [FIX] Updated to use pdfGeneratorService
+    const buffer = await this.pdfGeneratorService.generateInsurancePdf(insuranceData);
 
     res.set({
       'Content-Type': 'application/pdf',
@@ -194,50 +199,43 @@ export class FinancialController {
 
   @Get('budget/history')
   @ApiOperation({ summary: 'Lihat riwayat anggaran user' })
-  async getBudgets(@Req() req) {
-    const userId = req.user.id;
+  async getBudgets(@GetUser('id') userId: string) {
     return this.financialService.getMyBudgets(userId);
   }
 
   // ===========================================================================
-  // MODULE 3: CALCULATOR - PENSION PLAN (NEW)
+  // MODULE 3: CALCULATOR - PENSION PLAN
   // ===========================================================================
 
   @Post('calculator/pension')
   @ApiOperation({ summary: 'Hitung & Simpan Rencana Pensiun' })
-  async calculatePension(@Req() req, @Body() dto: CreatePensionDto) {
-    const userId = req.user.id;
+  async calculatePension(@GetUser('id') userId: string, @Body() dto: CreatePensionDto) {
     return this.financialService.calculateAndSavePension(userId, dto);
   }
 
   // ===========================================================================
-  // MODULE 4: CALCULATOR - INSURANCE PLAN (NEW)
+  // MODULE 4: CALCULATOR - INSURANCE PLAN
   // ===========================================================================
 
   @Post('calculator/insurance')
   @ApiOperation({ summary: 'Hitung & Simpan Kebutuhan Asuransi' })
-  async calculateInsurance(@Req() req, @Body() dto: CreateInsuranceDto) {
-    const userId = req.user.id;
+  async calculateInsurance(@GetUser('id') userId: string, @Body() dto: CreateInsuranceDto) {
     return this.financialService.calculateAndSaveInsurance(userId, dto);
   }
 
   // ===========================================================================
-  // MODULE 5: CALCULATOR - GOALS PLAN (NEW)
+  // MODULE 5: CALCULATOR - GOALS PLAN
   // ===========================================================================
 
-  // [NEW] Endpoint Simulasi Goals (Calculator Only)
-  // Frontend harus hit: POST /financial/goals/simulate
   @Post('goals/simulate')
   @ApiOperation({ summary: 'Simulasi Cepat Tujuan Keuangan (FV & PMT) - Tidak Simpan DB' })
-  async simulateGoal(@Req() req, @Body() dto: SimulateGoalDto) {
-    const userId = req.user.id;
+  simulateGoal(@GetUser('id') userId: string, @Body() dto: SimulateGoalDto) {
     return this.financialService.simulateGoal(userId, dto);
   }
 
   @Post('calculator/goals')
   @ApiOperation({ summary: 'Hitung & Simpan Tujuan Keuangan' })
-  async calculateGoal(@Req() req, @Body() dto: CreateGoalDto) {
-    const userId = req.user.id;
+  async calculateGoal(@GetUser('id') userId: string, @Body() dto: CreateGoalDto) {
     return this.financialService.calculateAndSaveGoal(userId, dto);
   }
 
@@ -256,7 +254,8 @@ export class FinancialController {
     if (!goalData) throw new NotFoundException('Data tujuan keuangan tidak ditemukan');
 
     // 2. Generate PDF
-    const buffer = await this.pdfservice.generateGoalPdf(goalData);
+    // [FIX] Updated to use pdfGeneratorService
+    const buffer = await this.pdfGeneratorService.generateGoalPdf(goalData);
 
     // 3. Stream Response
     res.set({
@@ -268,44 +267,36 @@ export class FinancialController {
   }
 
   // ===========================================================================
-  // MODULE 6: CALCULATOR - EDUCATION PLAN (NEW)
+  // MODULE 6: CALCULATOR - EDUCATION PLAN
   // ===========================================================================
 
   @Post('calculator/education')
   @ApiOperation({ summary: 'Hitung & Simpan Rencana Pendidikan Anak' })
-  async calculateEducation(@Req() req, @Body() dto: CreateEducationPlanDto) {
-    const userId = req.user.id;
+  async calculateEducation(@GetUser('id') userId: string, @Body() dto: CreateEducationPlanDto) {
     // Method ini mengembalikan { plan, calculation: { total, monthly, stagesBreakdown } }
-    // Frontend akan menerima JSON lengkap ini untuk ditampilkan.
     return this.financialService.calculateAndSaveEducation(userId, dto);
   }
 
   @Get('calculator/education')
   @ApiOperation({ summary: 'Ambil daftar rencana pendidikan user' })
-  async getEducationPlans(@Req() req) {
-    const userId = req.user.id;
+  async getEducationPlans(@GetUser('id') userId: string) {
     return this.financialService.getEducationPlans(userId);
   }
 
   @Delete('calculator/education/:id')
   @ApiOperation({ summary: 'Hapus rencana pendidikan' })
-  async deleteEducationPlan(@Req() req, @Param('id') id: string) {
-    const userId = req.user.id;
+  async deleteEducationPlan(@GetUser('id') userId: string, @Param('id') id: string) {
     return this.financialService.deleteEducationPlan(userId, id);
   }
 
   // [UPDATED] Endpoint Download Education PDF (Family Report)
-  // Perbaikan: Menggunakan relation 'stages' dan hitung total manual
   @Get('education/pdf')
   @ApiOperation({ summary: 'Download Education Plan PDF (All Children)' })
-  async downloadEducationPdf(@Req() req, @Res() res: express.Response) {
-    const userId = req.user.id;
-
-    // 1. Ambil Data (Stages included)
+  async downloadEducationPdf(@GetUser('id') userId: string, @Res() res: express.Response) {
     const educationPlans = await this.prisma.educationPlan.findMany({
       where: { userId },
       include: {
-        stages: { // [FIX] Gunakan 'stages', bukan 'calculation'
+        stages: {
           orderBy: { yearsToStart: 'asc' }
         }
       },
@@ -316,10 +307,8 @@ export class FinancialController {
       throw new NotFoundException('Belum ada rencana pendidikan yang dibuat.');
     }
 
-    // 2. Transform Data Structure (Manual Calculation)
-    // PDF service butuh struktur: { plan: ..., calculation: { totalFutureCost, monthlySaving, stagesBreakdown } }
+    // 2. Transform Data Structure
     const formattedData = educationPlans.map(p => {
-      // Hitung total manual dari stages
       const totalFutureCost = p.stages.reduce((sum, stage) => sum + Number(stage.futureCost), 0);
       const totalMonthlySaving = p.stages.reduce((sum, stage) => sum + Number(stage.monthlySaving), 0);
 
@@ -328,13 +317,14 @@ export class FinancialController {
         calculation: {
           totalFutureCost: totalFutureCost,
           monthlySaving: totalMonthlySaving,
-          stagesBreakdown: p.stages // Mapping stages DB ke stagesBreakdown PDF
+          stagesBreakdown: p.stages
         }
       };
     });
 
     // 3. Generate PDF
-    const buffer = await this.pdfservice.generateEducationPdf(formattedData);
+    // [FIX] Updated to use pdfGeneratorService
+    const buffer = await this.pdfGeneratorService.generateEducationPdf(formattedData);
 
     res.set({
       'Content-Type': 'application/pdf',
@@ -347,17 +337,15 @@ export class FinancialController {
   // [NEW] Endpoint Download PDF from History Detail
   @Get('checkup/history/pdf/:id')
   @ApiOperation({ summary: 'Download History PDF Report' })
-  async downloadHistoryPdf(@Param('id') id: string, @Req() req, @Res() res: express.Response) {
-    const userId = req.user.id;
-
+  async downloadHistoryPdf(@Param('id') id: string, @GetUser('id') userId: string, @Res() res: express.Response) {
     // 1. Ambil Data Detail (Gabungan Raw + Analisa)
-    // Reuse logic getCheckupDetail yang sudah ada di service
     const checkupDetail = await this.financialService.getCheckupDetail(userId, id);
 
     if (!checkupDetail) throw new NotFoundException('Data riwayat tidak ditemukan');
 
     // 2. Generate PDF dengan Template History
-    const buffer = await this.pdfservice.generateHistoryCheckupPdf(checkupDetail);
+    // [FIX] Updated to use pdfGeneratorService
+    const buffer = await this.pdfGeneratorService.generateHistoryCheckupPdf(checkupDetail);
 
     // 3. Stream Response
     res.set({
@@ -367,7 +355,6 @@ export class FinancialController {
     });
     res.end(buffer);
   }
-
 
   // ===========================================================================
   // MODULE 7: RISK PROFILE (STATELESS SIMULATION)
@@ -381,7 +368,6 @@ export class FinancialController {
   })
   @ApiResponse({ status: 200, type: RiskProfileResponseDto })
   calculateRiskProfile(@Body() dto: CalculateRiskProfileDto): RiskProfileResponseDto {
-    // Memanggil Pure Function di Service
     return this.financialService.calculateRiskProfile(dto);
   }
 
@@ -395,11 +381,12 @@ export class FinancialController {
   @Header('Content-Disposition', 'attachment; filename="Risk_Profile_Report.pdf"')
   async exportRiskProfilePdf(
     @GetUser('id') userId: string,
-    @Body() data: RiskProfileResponseDto, // Menerima full JSON result dari Frontend
+    @Body() data: RiskProfileResponseDto,
     @Res({ passthrough: true }) res: express.Response,
   ): Promise<StreamableFile> {
 
     // 1. Generate PDF Buffer
+    // [FIX] Menggunakan this.pdfGeneratorService yang sudah benar
     const pdfBuffer = await this.pdfGeneratorService.generateRiskProfilePdf(data);
 
     // 2. Setup Filename yang deskriptif
@@ -412,7 +399,8 @@ export class FinancialController {
       'Content-Length': pdfBuffer.length,
     });
 
-    // 3. Audit Log (PENTING: Mencatat aktivitas Agen mencetak laporan)
+    // 3. Audit Log
+    // [FIX] Menggunakan this.auditService yang sudah di-inject
     await this.auditService.logActivity({
       userId,
       action: 'EXPORT_PDF',
@@ -425,4 +413,3 @@ export class FinancialController {
     return new StreamableFile(pdfBuffer);
   }
 }
-

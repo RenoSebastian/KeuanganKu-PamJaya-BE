@@ -1,8 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsNumber, IsEnum, IsObject, ValidateNested, IsDateString } from 'class-validator';
+import { Type } from 'class-transformer';
 
 /**
  * Enum Kategori Profil Risiko.
- * Digunakan agar nilai return konsisten (tidak typo antara 'Konservatif' vs 'Conservative').
  */
 export enum RiskProfileCategory {
     KONSERVATIF = 'Konservatif',
@@ -12,35 +13,41 @@ export enum RiskProfileCategory {
 
 /**
  * Struktur Data Alokasi Aset.
- * Merepresentasikan persentase (0-100) untuk Pie Chart.
  */
 export class RiskAllocationDto {
     @ApiProperty({ description: 'Persentase alokasi Low Risk (Pasar Uang/Deposito)', example: 20 })
+    @IsNumber()
     lowRisk: number;
 
     @ApiProperty({ description: 'Persentase alokasi Medium Risk (Obligasi/Campuran)', example: 30 })
+    @IsNumber()
     mediumRisk: number;
 
     @ApiProperty({ description: 'Persentase alokasi High Risk (Saham/Equity)', example: 50 })
+    @IsNumber()
     highRisk: number;
 }
 
 /**
- * DTO Utama untuk Response Hasil Kalkulasi.
- * Struktur ini yang akan dibaca Frontend untuk ditampilkan dan disimpan ke .mgc
+ * DTO Utama untuk Response & Export PDF.
+ * [IMPORTANT] Validator decorators wajib ada agar data tidak di-strip oleh GlobalValidationPipe.
  */
 export class RiskProfileResponseDto {
-    // --- METADATA (Untuk Context) ---
+    // --- METADATA ---
 
     @ApiProperty({ description: 'Timestamp waktu simulasi dilakukan (ISO String)', example: '2025-11-20T10:00:00Z' })
+    @IsString()
+    // Bisa gunakan @IsDateString() jika formatnya strict ISO, tapi IsString lebih aman untuk payload general
     calculatedAt: string;
 
-    @ApiProperty({ description: 'Nama klien (echo balik dari input)', example: 'Budi Santoso' })
+    @ApiProperty({ description: 'Nama klien', example: 'Budi Santoso' })
+    @IsString()
     clientName: string;
 
     // --- HASIL KALKULASI ---
 
     @ApiProperty({ description: 'Total skor hasil penjumlahan bobot jawaban (10-30)', example: 24 })
+    @IsNumber()
     totalScore: number;
 
     @ApiProperty({
@@ -48,12 +55,14 @@ export class RiskProfileResponseDto {
         enum: RiskProfileCategory,
         example: RiskProfileCategory.AGRESIF,
     })
+    @IsEnum(RiskProfileCategory)
     riskProfile: RiskProfileCategory;
 
     @ApiProperty({
         description: 'Narasi penjelasan profil risiko untuk ditampilkan ke user',
-        example: 'Anda siap menghadapi fluktuasi nilai investasi demi potensi hasil jangka panjang.',
+        example: 'Anda siap menghadapi fluktuasi nilai investasi...',
     })
+    @IsString()
     riskDescription: string;
 
     // --- REKOMENDASI ALOKASI ---
@@ -62,5 +71,8 @@ export class RiskProfileResponseDto {
         description: 'Objek rekomendasi alokasi aset untuk visualisasi Pie Chart',
         type: RiskAllocationDto,
     })
+    @IsObject()
+    @ValidateNested()
+    @Type(() => RiskAllocationDto) // Transformasi nested object agar tervalidasi
     allocation: RiskAllocationDto;
 }
