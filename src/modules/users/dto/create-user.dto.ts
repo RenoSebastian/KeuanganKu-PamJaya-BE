@@ -53,13 +53,32 @@ export class CreateUserDto {
     @IsNotEmpty()
     dateOfBirth: string;
 
-    @ApiPropertyOptional({ example: 'Staff IT', description: 'Jabatan pegawai' })
-    @IsOptional()
-    @IsString()
-    jobTitle?: string;
-
     @ApiPropertyOptional({ example: 0, description: 'Jumlah tanggungan' })
     @IsOptional()
     @IsNumber()
     dependentCount?: number;
+
+    // =================================================================
+    // [NEW] PHASE 4: ADDITIONAL PROFILE FIELDS (Admin Input)
+    // =================================================================
+
+    @ApiPropertyOptional({ example: 'Laki-laki', description: 'Jenis Kelamin' })
+    @IsOptional()
+    @IsString()
+    gender?: string;
+
+    @ApiPropertyOptional({ example: 'Jl. Sudirman No. 1', description: 'Alamat Domisili' })
+    @IsOptional()
+    @IsString()
+    address?: string;
+
+    @ApiPropertyOptional({ example: 'PT Asuransi Sejahtera', description: 'Nama Perusahaan Agen' })
+    @IsOptional()
+    @IsString()
+    agencyName?: string;
+
+    @ApiPropertyOptional({ example: 'Senior Agent', description: 'Jabatan/Level Agen' })
+    @IsOptional()
+    @IsString()
+    agentLevel?: string;
 }

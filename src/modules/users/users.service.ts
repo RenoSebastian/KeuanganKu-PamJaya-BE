@@ -74,10 +74,9 @@ export class UsersService {
         fullName: true,
         email: true,
         role: true,
-        // jobTitle: true, // [REMOVED] Field ini tidak ada di schema.prisma
         unitKerja: {
           select: {
-            namaUnit: true // [FIXED] Menggunakan namaUnit sesuai schema
+            namaUnit: true
           }
         },
         createdAt: true,
@@ -98,8 +97,8 @@ export class UsersService {
     const salt = await bcrypt.genSalt();
     const hashedPassword = await bcrypt.hash(dto.password, salt);
 
-    // [FIX] Exclude jobTitle yang tidak ada di DB User
-    const { password, dateOfBirth, jobTitle, ...rest } = dto;
+    // [FIXED] Hapus jobTitle dari destructuring karena field tersebut sudah dihapus dari DTO
+    const { password, dateOfBirth, ...rest } = dto;
 
     const data: any = {
       ...rest,
@@ -151,7 +150,8 @@ export class UsersService {
 
   private async processUpdate(userId: string, dto: any) {
     try {
-      const { password, dateOfBirth, dependentCount, jobTitle, ...restData } = dto;
+      // [FIXED] Hapus jobTitle dari sini juga
+      const { password, dateOfBirth, dependentCount, ...restData } = dto;
 
       // Bersihkan undefined/empty values dari restData
       const updatePayload: any = {};
@@ -201,7 +201,14 @@ export class UsersService {
         subtitle: user.email,
         role: user.role,
         unitKerjaId: user.unitKerjaId,
+
+        // [NEW - PHASE 3] Indexing Data Tambahan
+        agentLevel: user.agentLevel,
+        agencyName: user.agencyName,
+        address: user.address,
+        gender: user.gender,
       };
+
       // Fire & Forget sync
       this.searchService
         .addDocuments('global_search', [searchPayload])
