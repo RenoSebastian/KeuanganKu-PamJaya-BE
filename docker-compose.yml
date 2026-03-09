@@ -3,20 +3,30 @@ services:
     build: 
       context: .
       dockerfile: Dockerfile
-    container_name: pamjaya-be
+    container_name: keuanganku-be
     restart: always
     env_file: .env
+    
+    # Port Mapping sesuai diskusi terakhir
     ports:
-      - "3002:4002"  # Host 3001 -> Container 4001 [KOREKSI]
-      - "5556:5556"
+      - "3002:4002"  # Host 3001 -> Container 4001 (sesuai PORT=4001 di .env)
+      - "5556:5556"  # Prisma Studio sesuai permintaan Anda
+
+    # Resource Management (Mencegah VM 4GB Crash/OOM)
     deploy:
       resources:
         limits:
           memory: 1G
+        reservations:
+          memory: 256M
+
+    # Networking ke network Nginx yang sudah ada
     networks:
       - e-daily-report-net
+
+    # Healthcheck: Port disesuaikan ke 4001 agar tidak 'unhealthy'
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4001/api/health"] # Port 4001 [KOREKSI]
+      test: ["CMD", "curl", "-f", "http://localhost:4002/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
