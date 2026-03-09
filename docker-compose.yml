@@ -3,7 +3,7 @@ services:
     build: 
       context: .
       dockerfile: Dockerfile
-    container_name: keuanganku-be
+    container_name: pamjaya-be
     restart: always
     env_file: .env
     
