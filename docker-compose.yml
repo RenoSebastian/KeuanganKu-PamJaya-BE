@@ -7,7 +7,7 @@ services:
     restart: always
     env_file: .env
     ports:
-      - "3001:4001"  # Host 3001 -> Container 4001 [KOREKSI]
+      - "3002:4002"  # Host 3001 -> Container 4001 [KOREKSI]
       - "5555:5555"
     deploy:
       resources:
