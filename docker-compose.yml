@@ -3,30 +3,20 @@ services:
     build: 
       context: .
       dockerfile: Dockerfile
-    container_name: keuanganku-be
+    container_name: pamjaya-be
     restart: always
     env_file: .env
-    
-    # Port Mapping
     ports:
-      - "3001:4000"  # Akses API utama via Nginx
-      - "5555:5555"  # Akses Prisma Studio (Gunakan SSH Tunneling untuk keamanan)
-
-    # Resource Management (Mencegah VM Crash)
+      - "3001:4001"  # Host 3001 -> Container 4001 [KOREKSI]
+      - "5555:5555"
     deploy:
       resources:
         limits:
-          memory: 1G  # Batasi agar tidak memakan seluruh RAM VM 4GB
-        reservations:
-          memory: 256M
-
-    # Networking
+          memory: 1G
     networks:
       - e-daily-report-net
-
-    # Healthcheck (Optional: Memastikan app benar-benar 'Ready' sebelum Nginx kirim traffic)
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:4001/api/health"] # Port 4001 [KOREKSI]
       interval: 30s
       timeout: 10s
       retries: 3
