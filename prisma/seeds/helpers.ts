@@ -1,9 +1,8 @@
 import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcrypt'; // Pastikan npm i bcrypt @types/bcrypt terinstall
+import * as argon2 from 'argon2'; // [FIX FASE 1] Standarisasi menggunakan Argon2
 
 // --- CONSTANTS ---
-export const PASSWORD_HASH_SALT = 10;
-export const DEFAULT_PASSWORD = 'password123';
+export const DEFAULT_PASSWORD = 'password123'; // Disesuaikan dengan standar perusahaan
 
 // --- DATE MANIPULATION (Time Travel Logic) ---
 export const getDateOffsets = () => {
@@ -86,5 +85,6 @@ export const generateFinancialProfile = (type: 'HEALTHY' | 'RISKY') => {
 };
 
 export const hashPassword = async (password: string) => {
-    return await bcrypt.hash(password, PASSWORD_HASH_SALT);
+    // [FIX FASE 1] Hash langsung dieksekusi oleh Argon2 tanpa perlu mendefinisikan salt manual
+    return await argon2.hash(password);
 };

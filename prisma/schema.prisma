@@ -131,8 +131,13 @@ model User {
   dateOfBirth    DateTime @map("date_of_birth") // Penting untuk pensiun, Usia dihitung secara runtime
   dependentCount Int      @default(0) @map("dependent_count")
   role           Role     @default(USER)
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // --- [NEW FASE 5] FORCE CHANGE PASSWORD FLAG ---
+  isFirstLogin Boolean @default(true) @map("is_first_login")
+  // -----------------------------------------------
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relasi Master Data
   unitKerja UnitKerja @relation(fields: [unitKerjaId], references: [id])

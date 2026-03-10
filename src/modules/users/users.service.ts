@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+import * as argon2 from 'argon2'; // [FIX FASE 1] Import Argon2
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SearchService } from '../search/search.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -74,7 +74,6 @@ export class UsersService {
         fullName: true,
         email: true,
         role: true,
-        // [UPDATE] Ekspos field Phase 4 untuk keperluan tabel Admin jika diperlukan
         gender: true,
         address: true,
         agencyName: true,
@@ -100,17 +99,18 @@ export class UsersService {
 
     if (existing) throw new BadRequestException('Email atau NIP sudah terdaftar');
 
-    const salt = await bcrypt.genSalt();
-    const hashedPassword = await bcrypt.hash(dto.password, salt);
+    // [FIX FASE 1] Gunakan Argon2 untuk standarisasi kriptografi
+    const hashedPassword = await argon2.hash(dto.password);
 
-    // Destrukturisasi properti spesifik, sisanya (termasuk field Phase 4) masuk ke rest
+    // Destrukturisasi properti spesifik, sisanya masuk ke rest
     const { password, dateOfBirth, ...rest } = dto;
 
     const data: any = {
       ...rest,
       passwordHash: hashedPassword,
-      // [FIX 500 ERROR] Isolasi validasi tipe tanggal
       dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : new Date('1990-01-01'),
+      // [NEW FASE 1] Force Change Password Flag
+      isFirstLogin: true,
     };
 
     try {
@@ -162,14 +162,12 @@ export class UsersService {
       const { password, dateOfBirth, dependentCount, ...restData } = dto;
       const updatePayload: any = {};
 
-      // [REFACTOR] Logika sanitasi payload menggunakan Object.entries lebih presisi
       for (const [key, value] of Object.entries(restData)) {
         if (value !== undefined && value !== '') {
           updatePayload[key] = value;
         }
       }
 
-      // Parsing tipe data secara eksplisit
       if (dependentCount !== undefined && dependentCount !== '') {
         updatePayload.dependentCount = Number(dependentCount);
       }
@@ -179,8 +177,8 @@ export class UsersService {
       }
 
       if (password) {
-        const salt = await bcrypt.genSalt();
-        updatePayload.passwordHash = await bcrypt.hash(password, salt);
+        // [FIX FASE 1] Update password dengan Argon2
+        updatePayload.passwordHash = await argon2.hash(password);
       }
 
       const updatedUser = await this.prisma.user.update({
@@ -211,18 +209,14 @@ export class UsersService {
         role: user.role,
         unitKerjaId: user.unitKerjaId,
 
-        // [NEW - PHASE 3 & 4] Indexing Data Tambahan
         agentLevel: user.agentLevel,
         agencyName: user.agencyName,
         address: user.address,
         gender: user.gender,
-
-        // [NEW] Field Perusahaan & Goals (Agar searchable)
         companyName: user.companyName,
         goals: user.goals,
       };
 
-      // Fire & Forget sync pattern
       this.searchService
         .addDocuments('global_search', [searchPayload])
         .catch((e) => this.logger.warn(`Search sync error: ${e.message}`));

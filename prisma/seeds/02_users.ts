@@ -1,11 +1,13 @@
 import { PrismaClient, Role } from '@prisma/client';
-import { DEFAULT_PASSWORD, hashPassword } from './helpers';
+import * as argon2 from 'argon2'; // [FIX FASE 1]
+import { DEFAULT_PASSWORD } from './helpers';
 
 export const seedUsers = async (prisma: PrismaClient) => {
     console.log('🌱 Seeding 02_users...');
 
     // 1. Prepare Dependencies
-    const passwordHash = await hashPassword(DEFAULT_PASSWORD);
+    // [FIX FASE 1] Hash menggunakan Argon2 secara langsung di seeder
+    const passwordHash = await argon2.hash(DEFAULT_PASSWORD || 'PamJaya123!');
 
     // Fetch Unit Kerja IDs (Required for Relation)
     const unitIT = await prisma.unitKerja.findUnique({ where: { kodeUnit: 'IT-01' } });
@@ -28,28 +30,28 @@ export const seedUsers = async (prisma: PrismaClient) => {
             unitKerjaId: unitBOD.id,
             dateOfBirth: new Date('1975-05-20'),
             dependentCount: 2,
+            isFirstLogin: false, // [NEW FASE 1] Set false untuk akun dummy
         },
     });
 
-    // 3. [NEW] Create Admin (Role: ADMIN)
-    // Admin ditempatkan di Unit IT sebagai System Administrator
+    // 3. Create Admin (Role: ADMIN)
     await prisma.user.upsert({
         where: { email: 'hello@keuanganku.id' },
         update: {},
         create: {
             fullName: 'System Administrator',
-            email: 'admin@keuanganku.com',
+            email: 'hello@keuanganku.id', // Menyesuaikan dengan where clause Anda
             nip: 'ADM-001',
             passwordHash,
             role: Role.ADMIN,
             unitKerjaId: unitIT.id,
             dateOfBirth: new Date('1990-08-17'),
             dependentCount: 0,
+            isFirstLogin: false, // [NEW FASE 1] Set false untuk akun dummy
         },
     });
 
     // 4. Create 10 Simulation Users (Batch Loop)
-    // Logic: Loop efisien, upsert berdasarkan NIP untuk mencegah duplikasi
     const usersPayload = Array.from({ length: 10 }).map((_, index) => {
         const idNum = index + 1;
         return {
@@ -59,8 +61,9 @@ export const seedUsers = async (prisma: PrismaClient) => {
             passwordHash,
             role: Role.USER,
             unitKerjaId: unitIT.id,
-            dateOfBirth: new Date('1995-01-01'), // Generasi Milenial/Z
-            dependentCount: idNum % 3, // Variasi tanggungan 0-2
+            dateOfBirth: new Date('1995-01-01'),
+            dependentCount: idNum % 3,
+            isFirstLogin: false, // [NEW FASE 1] Set false untuk akun dummy
         };
     });
 

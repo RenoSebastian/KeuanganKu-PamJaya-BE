@@ -40,11 +40,30 @@ export class LoginDto {
   @IsNotEmpty()
   password: string;
 
-  // [UPDATE] Jadikan Optional.
+  // Jadikan Optional.
   // Jika dikirim, FE bisa kirim kode "IT-01", "FIN-01".
   // Jika tidak dikirim, Backend akan set ke default "IT-01" di logic handler-nya.
   @ApiProperty({ example: 'IT-01', required: false })
   @IsString()
   @IsOptional()
   unitKerjaId?: string;
+}
+
+// [NEW FASE 2] DTO untuk Endpoint Ganti Sandi Awal
+export class ChangeInitialPasswordDto {
+  @ApiProperty({ example: 'uuid-user-123' })
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+
+  @ApiProperty({ example: 'PamReno2904' })
+  @IsString()
+  @IsNotEmpty()
+  oldPassword: string;
+
+  @ApiProperty({ example: 'RahasiaKuat123!' })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(6, { message: 'Password baru minimal 6 karakter' })
+  newPassword: string;
 }
