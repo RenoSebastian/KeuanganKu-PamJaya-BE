@@ -7,7 +7,7 @@ export const seedUsers = async (prisma: PrismaClient) => {
 
     // 1. Prepare Dependencies
     // [FIX FASE 1] Hash menggunakan Argon2 secara langsung di seeder
-    const passwordHash = await argon2.hash(DEFAULT_PASSWORD || 'PamJaya123!');
+    const passwordHash = await argon2.hash(DEFAULT_PASSWORD || 'password123');
 
     // Fetch Unit Kerja IDs (Required for Relation)
     const unitIT = await prisma.unitKerja.findUnique({ where: { kodeUnit: 'IT-01' } });
