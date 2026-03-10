@@ -63,7 +63,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 # Pastikan assets (gambar logo PDF) ikut terbawa jika ada di src/assets
-COPY --from=builder /app/src/assets ./src/assets 
+COPY --from=builder /app/src/assets ./src/assets
 
 EXPOSE 3000
 
