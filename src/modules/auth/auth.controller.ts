@@ -1,12 +1,12 @@
 import { Body, Controller, Post, HttpCode, HttpStatus } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto } from './dto/auth.dto';
+import { RegisterDto, LoginDto, ChangeInitialPasswordDto } from './dto/auth.dto';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 
 @ApiTags('Auth') // Label di Swagger
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(private authService: AuthService) { }
 
   @Post('register')
   @ApiOperation({ summary: 'Daftar user baru karyawan' })
@@ -19,5 +19,13 @@ export class AuthController {
   @ApiOperation({ summary: 'Masuk dan dapatkan JWT Token' })
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  // [NEW FASE 2] Endpoint Ganti Sandi Awal
+  @Post('change-initial-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Ubah kata sandi default untuk pertama kali login' })
+  changeInitialPassword(@Body() dto: ChangeInitialPasswordDto) {
+    return this.authService.changeInitialPassword(dto);
   }
 }

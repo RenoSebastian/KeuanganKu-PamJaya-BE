@@ -59,8 +59,13 @@ export class CreateUserDto {
     dependentCount?: number;
 
     // =================================================================
-    // [NEW] PHASE 4: ADDITIONAL PROFILE FIELDS (Admin Input)
+    // [NEW] ADDITIONAL PROFILE FIELDS (Domain Concept Expansion)
     // =================================================================
+
+    @ApiPropertyOptional({ example: 'Tax Leader', description: 'Jabatan Struktural Internal' })
+    @IsOptional()
+    @IsString()
+    position?: string;
 
     @ApiPropertyOptional({ example: 'Laki-laki', description: 'Jenis Kelamin' })
     @IsOptional()

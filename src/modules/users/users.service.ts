@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+import * as argon2 from 'argon2'; // [FIX FASE 1] Import Argon2
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SearchService } from '../search/search.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -74,6 +74,10 @@ export class UsersService {
         fullName: true,
         email: true,
         role: true,
+        gender: true,
+        address: true,
+        agencyName: true,
+        agentLevel: true,
         unitKerja: {
           select: {
             namaUnit: true
@@ -86,30 +90,33 @@ export class UsersService {
 
   // 2. Create User (Admin)
   async createUser(dto: CreateUserDto) {
-    // Cek duplikat
+    // Cek duplikat (Pre-condition logic)
     const existing = await this.prisma.user.findFirst({
       where: {
         OR: [{ email: dto.email }, { nip: dto.nip }],
       },
     });
+
     if (existing) throw new BadRequestException('Email atau NIP sudah terdaftar');
 
-    const salt = await bcrypt.genSalt();
-    const hashedPassword = await bcrypt.hash(dto.password, salt);
+    // [FIX FASE 1] Gunakan Argon2 untuk standarisasi kriptografi
+    const hashedPassword = await argon2.hash(dto.password);
 
-    // [FIXED] Hapus jobTitle dari destructuring karena field tersebut sudah dihapus dari DTO
+    // Destrukturisasi properti spesifik, sisanya masuk ke rest
     const { password, dateOfBirth, ...rest } = dto;
 
     const data: any = {
       ...rest,
       passwordHash: hashedPassword,
-      // [FIX 500 ERROR] Pastikan dateOfBirth selalu ada
       dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : new Date('1990-01-01'),
+      // [NEW FASE 1] Force Change Password Flag
+      isFirstLogin: true,
     };
 
     try {
       const newUser = await this.prisma.user.create({ data });
       this.syncToSearch(newUser);
+
       const { passwordHash, ...result } = newUser;
       return result;
     } catch (error) {
@@ -127,7 +134,9 @@ export class UsersService {
       where: { id },
       include: { unitKerja: true },
     });
+
     if (!user) throw new NotFoundException('User not found');
+
     const { passwordHash, ...result } = user;
     return result;
   }
@@ -139,7 +148,7 @@ export class UsersService {
 
   // 5. Delete User
   async deleteUser(id: string) {
-    await this.findOne(id);
+    await this.findOne(id); // Memastikan eksistensi sebelum menghapus
     const deleted = await this.prisma.user.delete({ where: { id } });
     return { message: 'User deleted successfully', id: deleted.id };
   }
@@ -150,19 +159,16 @@ export class UsersService {
 
   private async processUpdate(userId: string, dto: any) {
     try {
-      // [FIXED] Hapus jobTitle dari sini juga
       const { password, dateOfBirth, dependentCount, ...restData } = dto;
-
-      // Bersihkan undefined/empty values dari restData
       const updatePayload: any = {};
 
-      Object.keys(restData).forEach(key => {
-        if (restData[key] !== undefined && restData[key] !== '') {
-          updatePayload[key] = restData[key];
+      for (const [key, value] of Object.entries(restData)) {
+        if (value !== undefined && value !== '') {
+          updatePayload[key] = value;
         }
-      });
+      }
 
-      if (dependentCount !== undefined) {
+      if (dependentCount !== undefined && dependentCount !== '') {
         updatePayload.dependentCount = Number(dependentCount);
       }
 
@@ -171,8 +177,8 @@ export class UsersService {
       }
 
       if (password) {
-        const salt = await bcrypt.genSalt();
-        updatePayload.passwordHash = await bcrypt.hash(password, salt);
+        // [FIX FASE 1] Update password dengan Argon2
+        updatePayload.passwordHash = await argon2.hash(password);
       }
 
       const updatedUser = await this.prisma.user.update({
@@ -181,6 +187,7 @@ export class UsersService {
       });
 
       this.syncToSearch(updatedUser);
+
       const { passwordHash, ...result } = updatedUser;
       return result;
     } catch (error) {
@@ -202,18 +209,14 @@ export class UsersService {
         role: user.role,
         unitKerjaId: user.unitKerjaId,
 
-        // [NEW - PHASE 3] Indexing Data Tambahan
         agentLevel: user.agentLevel,
         agencyName: user.agencyName,
         address: user.address,
         gender: user.gender,
-
-        // [NEW] Field Perusahaan & Goals (Agar searchable)
         companyName: user.companyName,
         goals: user.goals,
       };
 
-      // Fire & Forget sync
       this.searchService
         .addDocuments('global_search', [searchPayload])
         .catch((e) => this.logger.warn(`Search sync error: ${e.message}`));
