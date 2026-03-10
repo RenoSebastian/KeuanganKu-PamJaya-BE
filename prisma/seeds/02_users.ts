@@ -34,7 +34,7 @@ export const seedUsers = async (prisma: PrismaClient) => {
     // 3. [NEW] Create Admin (Role: ADMIN)
     // Admin ditempatkan di Unit IT sebagai System Administrator
     await prisma.user.upsert({
-        where: { email: 'admin@keuanganku.com' },
+        where: { email: 'hello@keuanganku.id' },
         update: {},
         create: {
             fullName: 'System Administrator',

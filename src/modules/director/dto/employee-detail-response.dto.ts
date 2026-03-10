@@ -25,6 +25,10 @@ export class EmployeeProfileDto {
 
   @ApiProperty({ example: '2026-01-24T10:00:00.000Z', description: 'Waktu checkup terakhir dilakukan' })
   lastCheckDate: Date;
+
+  // [FIX] Penambahan field age hasil dari on-the-fly calculation di service
+  @ApiProperty({ example: 41, description: 'Usia karyawan (kalkulasi runtime dari tanggal lahir)', required: false })
+  age?: number;
 }
 
 // ============================================================================
@@ -46,7 +50,7 @@ export class FinancialAnalysisDto {
   @ApiProperty({ description: 'Waktu analisa ini digenerate' })
   generatedAt: Date;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'Detail rasio finansial (Array of Objects dari engine)',
     example: [
       { id: 'saving_ratio', label: 'Rasio Tabungan', value: 5, grade: 'POOR', statusColor: 'RED' }
@@ -64,6 +68,10 @@ class UserProfileDataDto {
 
   @ApiProperty({ example: '1985-08-17', required: false })
   dob?: string;
+
+  // [FIX] Penambahan field age pada objek userProfile untuk riwayat data
+  @ApiProperty({ example: 41, required: false })
+  age?: number;
 }
 
 export class FinancialRecordDataDto {

@@ -1,5 +1,5 @@
-import { IsEmail, IsNotEmpty, IsString, MinLength, IsOptional, IsEnum } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class RegisterDto {
   @ApiProperty({ example: '10203040' })
@@ -42,7 +42,7 @@ export class LoginDto {
 
   // [UPDATE] Jadikan Optional.
   // Jika dikirim, FE bisa kirim kode "IT-01", "FIN-01".
-  // Jika tidak dikirim, Backend akan set ke default "IT-01".
+  // Jika tidak dikirim, Backend akan set ke default "IT-01" di logic handler-nya.
   @ApiProperty({ example: 'IT-01', required: false })
   @IsString()
   @IsOptional()

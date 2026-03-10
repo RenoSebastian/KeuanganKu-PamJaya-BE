@@ -30,6 +30,23 @@ export class DirectorService {
   ) { }
 
   // ===========================================================================
+  // UTILITY HELPER (INFORMATION EXPERT)
+  // ===========================================================================
+  private calculateAge(dob: Date): number {
+    if (!dob) return 0;
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+    const monthDiff = today.getMonth() - dob.getMonth();
+
+    // Penyesuaian presisi: Jika bulan saat ini lebih kecil dari bulan lahir,
+    // atau jika bulan sama tetapi tanggal saat ini lebih kecil dari tanggal lahir, usia dikurangi 1.
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+      age--;
+    }
+    return age;
+  }
+
+  // ===========================================================================
   // PHASE 5: ORCHESTRATOR (PARALLEL EXECUTION)
   // ===========================================================================
   async getDashboardSummary(): Promise<DashboardSummaryDto> {
@@ -316,6 +333,9 @@ export class DirectorService {
       analysisRatios = result.ratios;
     }
 
+    // [PHASE 3] Injeksi perhitungan usia yang presisi menggunakan metode helper
+    const calculatedAge = user.dateOfBirth ? this.calculateAge(user.dateOfBirth) : 0;
+
     return {
       profile: {
         id: user.id,
@@ -325,6 +345,7 @@ export class DirectorService {
         status: c.status,
         healthScore: c.healthScore,
         lastCheckDate: c.checkDate,
+        age: calculatedAge, // <-- INJEKSI USIA
       },
 
       analysis: {
@@ -340,6 +361,7 @@ export class DirectorService {
         userProfile: {
           name: user.fullName,
           dob: user.dateOfBirth ? user.dateOfBirth.toISOString() : undefined,
+          age: calculatedAge, // <-- INJEKSI USIA DI RECORD PROFILE
           ...c.userProfile as any
         },
         assetCash: Number(c.assetCash),
@@ -412,7 +434,8 @@ export class DirectorService {
           id: employee.id,
           name: employee.fullName,
           unitKerja: employee.unitKerjaId,
-          // Menambahkan konteks finansial terakhir agar bisa di-search berdasarkan kondisi
+          // Mengikutsertakan usia dalam payload index agar memfasilitasi filter demografi di Omni Search
+          age: employee.dateOfBirth ? this.calculateAge(employee.dateOfBirth) : null,
           lastHealthScore: employee.financialChecks[0]?.healthScore || 0,
         },
       ]);

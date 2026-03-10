@@ -3,7 +3,7 @@ import * as bcrypt from 'bcrypt'; // Pastikan npm i bcrypt @types/bcrypt terinst
 
 // --- CONSTANTS ---
 export const PASSWORD_HASH_SALT = 10;
-export const DEFAULT_PASSWORD = 'Password123!';
+export const DEFAULT_PASSWORD = 'password123';
 
 // --- DATE MANIPULATION (Time Travel Logic) ---
 export const getDateOffsets = () => {
