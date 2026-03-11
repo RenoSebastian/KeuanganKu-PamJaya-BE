@@ -1,11 +1,10 @@
 import { CreateFinancialRecordDto } from '../dto/create-financial-record.dto';
 import { CreatePensionDto } from '../dto/create-pension.dto';
 import { CreateInsuranceDto } from '../dto/create-insurance.dto';
-import { CreateGoalDto, SimulateGoalDto } from '../dto/create-goal.dto'; // [UPDATED] Import SimulateGoalDto
+import { CreateGoalDto, SimulateGoalDto } from '../dto/create-goal.dto';
 import { CreateEducationPlanDto } from '../dto/create-education.dto';
 import { CreateBudgetDto } from '../dto/create-budget.dto';
 import { SchoolLevel, CostType } from '@prisma/client';
-// Tambahkan 2 baris ini bersama import DTO lainnya
 import { RiskAnswerOption } from '../dto/calculate-risk-profile.dto';
 import { RiskProfileCategory } from '../dto/risk-profile-response.dto';
 
@@ -27,7 +26,6 @@ export interface HealthAnalysisResult {
   netWorth: number; // H. Kekayaan Bersih
   surplusDeficit: number; // Q. Surplus/Defisit
   generatedAt: string;
-  // Feedback data raw untuk Frontend (opsional)
   incomeFixed?: number;
   incomeVariable?: number;
 }
@@ -41,16 +39,11 @@ export const calculateFinancialHealth = (
 ): HealthAnalysisResult => {
   // --- 1. AGGREGATION (PENGGABUNGAN DATA) ---
 
-  // Helper untuk memastikan angka valid (prevent NaN)
   const val = (n: number) => Number(n) || 0;
 
-  // NOTE: Sesuai kesepakatan, SEMUA data arus kas (Flow) dari Frontend 
-  // dikirim dalam satuan BULANAN. Backend akan mengalikan 12 untuk hitungan tahunan.
+  // --- A. TOTAL ASET (STOCK) ---
+  const totalLiquid = val(data.assetCash);
 
-  // --- A. TOTAL ASET (STOCK - Tetap/Snapshot) ---
-  const totalLiquid = val(data.assetCash); // A. Aset Likuid
-
-  // Aset Personal (B)
   const totalPersonal =
     val(data.assetHome) +
     val(data.assetVehicle) +
@@ -58,7 +51,6 @@ export const calculateFinancialHealth = (
     val(data.assetAntique) +
     val(data.assetPersonalOther);
 
-  // Aset Investasi (C)
   const totalInvestment =
     val(data.assetInvHome) +
     val(data.assetInvVehicle) +
@@ -70,11 +62,9 @@ export const calculateFinancialHealth = (
     val(data.assetDeposit) +
     val(data.assetInvOther);
 
-  // Total Aset (D)
   const totalAssets = totalLiquid + totalPersonal + totalInvestment;
 
-  // --- B. TOTAL UTANG (STOCK - Tetap/Snapshot) ---
-  // Utang Konsumtif (E)
+  // --- B. TOTAL UTANG (STOCK) ---
   const totalConsumptiveDebt =
     val(data.debtKPR) +
     val(data.debtKPM) +
@@ -82,35 +72,24 @@ export const calculateFinancialHealth = (
     val(data.debtCoop) +
     val(data.debtConsumptiveOther);
 
-  // Utang Usaha (F)
   const totalBusinessDebt = val(data.debtBusiness);
-
-  // Total Utang (G)
   const totalDebt = totalConsumptiveDebt + totalBusinessDebt;
 
-  // --- C. KEKAYAAN BERSIH (H) ---
+  // --- C. KEKAYAAN BERSIH ---
   const netWorth = totalAssets - totalDebt;
 
-  // --- D. ARUS KAS TAHUNAN (FLOW - Wajib Dikali 12) ---
-
-  // Total Penghasilan Tahunan (I) -> FIX: Dikali 12
+  // --- D. ARUS KAS TAHUNAN (FLOW) ---
   const totalAnnualIncome = (val(data.incomeFixed) + val(data.incomeVariable)) * 12;
 
-  // E. Pengeluaran Tahunan
-  // Cicilan Utang Konsumtif (J)
   const totalConsumptiveInstallment =
     (val(data.installmentKPR) +
       val(data.installmentKPM) +
       val(data.installmentCC) +
       val(data.installmentCoop) +
-      val(data.installmentConsumptiveOther)) *
-    12;
+      val(data.installmentConsumptiveOther)) * 12;
 
-  // Total Cicilan Utang (K)
-  const totalAnnualInstallment =
-    totalConsumptiveInstallment + (val(data.installmentBusiness) * 12);
+  const totalAnnualInstallment = totalConsumptiveInstallment + (val(data.installmentBusiness) * 12);
 
-  // Total Premi Asuransi (L)
   const totalInsurance =
     (val(data.insuranceLife) +
       val(data.insuranceHealth) +
@@ -119,18 +98,14 @@ export const calculateFinancialHealth = (
       val(data.insuranceBPJS) +
       val(data.insuranceOther)) * 12;
 
-  // Total Tabungan/Investasi (M)
   const totalAnnualSaving =
     (val(data.savingEducation) +
       val(data.savingRetirement) +
       val(data.savingPilgrimage) +
       val(data.savingHoliday) +
       val(data.savingEmergency) +
-      val(data.savingOther)) *
-    12;
+      val(data.savingOther)) * 12;
 
-  // Total Belanja Keluarga (N)
-  // FIX: expenseTax juga dikali 12 karena FE mengirim "Monthly Equivalent Tax"
   const totalFamilyExpense =
     (val(data.expenseFood) +
       val(data.expenseSchool) +
@@ -138,41 +113,31 @@ export const calculateFinancialHealth = (
       val(data.expenseCommunication) +
       val(data.expenseHelpers) +
       val(data.expenseLifestyle) +
-      val(data.expenseTax)) *
-    12;
+      val(data.expenseTax)) * 12;
 
-  // Total Pengeluaran (O)
-  const totalAnnualExpense =
-    totalAnnualInstallment +
-    totalInsurance +
-    totalAnnualSaving +
-    totalFamilyExpense;
-
-  // Pengeluaran Bulanan (P) - Rata-rata
+  const totalAnnualExpense = totalAnnualInstallment + totalInsurance + totalAnnualSaving + totalFamilyExpense;
   const monthlyExpense = totalAnnualExpense / 12;
+  const surplusDeficit = (totalAnnualIncome - totalAnnualExpense) / 12;
 
-  // Surplus/Defisit (Q)
-  const surplusDeficit = (totalAnnualIncome - totalAnnualExpense) / 12; // Return dalam satuan Bulanan
-
-  // --- 2. PERHITUNGAN 8 RASIO (LOGIKA TETAP SAMA) ---
+  // --- 2. PERHITUNGAN 8 RASIO (STANDARISASI BEST PRACTICE) ---
   const ratios: RatioDetail[] = [];
 
-  // #1. RASIO DANA DARURAT (A / P)
+  // #1. RASIO DANA DARURAT (A / P) | Target: 3-6x (Range Threshold)
   const r1 = monthlyExpense > 0 ? totalLiquid / monthlyExpense : 0;
   let s1: any = 'RED';
-  let rec1 = 'Dana darurat Anda belum ideal. Disarankan mulai membangun dana darurat secara bertahap dari penghasilan bulanan hingga mencapai minimal 3–6 kali pengeluaran.';
+  let rec1 = 'Dana darurat Anda belum ideal (< 3x). Mulai alokasikan porsi khusus dari penghasilan untuk antisipasi krisis.';
 
   if (r1 >= 3 && r1 <= 6) {
     s1 = 'GREEN_DARK';
-    rec1 = 'Dana darurat Anda berada pada kondisi ideal dan telah memberikan perlindungan keuangan yang memadai.';
+    rec1 = 'Dana darurat berada pada kondisi sangat ideal (3-6x pengeluaran). Perlindungan keuangan Anda memadai.';
   } else if (r1 > 6 && r1 <= 12) {
     s1 = 'GREEN_LIGHT';
-    rec1 = 'Kondisi dana darurat masih tergolong baik. Apabila Anda belum memiliki investasi, sebagian dana ini dapat mulai dialokasikan ke instrumen investasi berisiko rendah–menengah seperti obligasi atau logam mulia.';
+    rec1 = 'Kondisi dana darurat sangat aman. Anda dapat mulai memikirkan instrumen investasi untuk dana lebihnya.';
   } else if (r1 > 12) {
     s1 = 'YELLOW';
-    rec1 = 'Dana darurat Anda sangat memadai. Apabila belum memiliki investasi, disarankan mengalokasikan sebagian dana ke instrumen investasi jangka menengah–panjang seperti reksa dana atau saham.';
+    rec1 = 'Dana darurat Anda sangat berlebih. Ini kurang efisien karena tergerus inflasi. Segera alihkan ke instrumen investasi produktif.';
   } else {
-    s1 = 'RED'; // < 3
+    s1 = 'RED';
   }
 
   ratios.push({
@@ -184,22 +149,22 @@ export const calculateFinancialHealth = (
     recommendation: rec1,
   });
 
-  // #2. RASIO LIKUIDITAS vs KEKAYAAN BERSIH (A / H)
+  // #2. RASIO LIKUIDITAS vs NET WORTH (A / H) | Target: Min 15%
   const r2 = netWorth > 0 ? (totalLiquid / netWorth) * 100 : 0;
   let s2: any = 'RED';
-  let rec2 = 'Likuiditas Anda kurang ideal. Disarankan meningkatkan aset likuid agar keuangan lebih fleksibel dan aman terhadap kondisi darurat.';
+  let rec2 = 'Likuiditas Anda di bawah standar aman (< 10%). Risiko tinggi bila butuh uang tunai mendadak. Tingkatkan aset likuid Anda.';
 
-  if (r2 > 50) {
-    s2 = 'GREEN_DARK'; // Logic disesuaikan agar >50% hijau tua (sangat likuid)
-    rec2 = 'Likuiditas Anda sangat tinggi. Kondisi ini aman, namun dapat menjadi kurang optimal apabila dana terlalu banyak mengendap dan belum dimanfaatkan untuk investasi.';
-  } else if (r2 >= 15) { // Benchmark Min 15%
+  if (r2 >= 25) {
+    s2 = 'GREEN_DARK';
+    rec2 = 'Likuiditas sangat prima. Aset tunai Anda mendominasi dan sangat siap digunakan kapan saja.';
+  } else if (r2 >= 15) {
     s2 = 'GREEN_LIGHT';
-    rec2 = 'Kondisi likuiditas tergolong sangat baik dan seimbang antara keamanan dan potensi pertumbuhan.';
+    rec2 = 'Likuiditas seimbang. Memenuhi standar aman tanpa banyak dana menganggur.';
   } else if (r2 >= 10) {
     s2 = 'YELLOW';
-    rec2 = 'Likuiditas Anda berada pada batas ideal minimum dan masih dalam kondisi sehat.';
+    rec2 = 'Likuiditas mendekati batas minimum. Berhati-hati bila ada pengeluaran besar mendadak.';
   } else {
-    s2 = 'RED'; // < 10
+    s2 = 'RED';
   }
 
   ratios.push({
@@ -211,25 +176,22 @@ export const calculateFinancialHealth = (
     recommendation: rec2,
   });
 
-  // #3. RASIO TABUNGAN (M / I)
-  const r3 =
-    totalAnnualIncome > 0
-      ? (totalAnnualSaving / totalAnnualIncome) * 100
-      : 0;
+  // #3. RASIO TABUNGAN (M / I) | Target: Min 10% (Fixed Bug)
+  const r3 = totalAnnualIncome > 0 ? (totalAnnualSaving / totalAnnualIncome) * 100 : 0;
   let s3: any = 'RED';
-  let rec3 = 'Rasio tabungan belum ideal. Disarankan meninjau kembali pengeluaran dan mulai meningkatkan porsi tabungan secara bertahap.';
+  let rec3 = 'Rasio menabung Anda kritis (< 5%). Tekan pengeluaran gaya hidup agar dapat menyisihkan dana masa depan.';
 
-  if (r3 >= 30) {
+  if (r3 >= 20) {
     s3 = 'GREEN_DARK';
-    rec3 = 'Tingkat menabung sangat baik. Anda memiliki disiplin keuangan yang kuat dan ruang yang besar untuk mencapai tujuan finansial lebih cepat.';
-  } else if (r3 >= 20) {
+    rec3 = 'Disiplin menabung Anda sangat luar biasa. Ruang untuk mencapai kemandirian finansial sangat terbuka lebar.';
+  } else if (r3 >= 10) {
     s3 = 'GREEN_LIGHT';
-    rec3 = 'Rasio tabungan tergolong baik dan menunjukkan perencanaan keuangan yang matang.';
-  } else if (r3 <= 10) {
+    rec3 = 'Rasio tabungan sudah berada di jalur yang benar dan memenuhi standar minimum.';
+  } else if (r3 >= 5) {
     s3 = 'YELLOW';
-    rec3 = 'Rasio tabungan sudah memenuhi standar minimal dan berada pada kondisi sehat.'
+    rec3 = 'Porsi menabung belum memenuhi target minimum 10%. Periksa kembali alokasi pengeluaran Anda.';
   } else {
-    s3 = 'RED'; // < 10
+    s3 = 'RED';
   }
 
   ratios.push({
@@ -241,22 +203,22 @@ export const calculateFinancialHealth = (
     recommendation: rec3,
   });
 
-  // #4. RASIO UTANG vs ASET (G / D)
+  // #4. RASIO UTANG vs ASET (G / D) | Target: Maks 50%
   const r4 = totalAssets > 0 ? (totalDebt / totalAssets) * 100 : 0;
   let s4: any = 'RED';
-  let rec4 = 'Bahaya! Utang > 50% Aset. Risiko kebangkrutan.';
+  let rec4 = 'Bahaya! Utang mendominasi lebih dari 50% total aset Anda. Risiko kebangkrutan sangat tinggi.';
 
   if (r4 <= 15) {
     s4 = 'GREEN_DARK';
-    rec4 = 'Struktur utang sangat sehat dan risiko keuangan relatif rendah.';
+    rec4 = 'Struktur utang sangat ringan. Kondisi aset sangat mendominasi liabilitas.';
   } else if (r4 <= 35) {
     s4 = 'GREEN_LIGHT';
-    rec4 = 'Struktur utang masih aman dan berada dalam kondisi yang terkontrol.';
+    rec4 = 'Rasio utang masih dalam zona terkontrol dan tidak membebani pertumbuhan aset.';
   } else if (r4 <= 50) {
     s4 = 'YELLOW';
-    rec4 = 'Utang mulai mendekati batas ideal. Disarankan berhati-hati dalam menambah utang baru.';
+    rec4 = 'Porsi utang mendekati limit maksimal perbankan. Hentikan penambahan utang baru.';
   } else {
-    s4 = 'RED'; // > 50
+    s4 = 'RED';
   }
 
   ratios.push({
@@ -268,25 +230,22 @@ export const calculateFinancialHealth = (
     recommendation: rec4,
   });
 
-  // #5. RASIO CICILAN UTANG (K / I)
-  const r5 =
-    totalAnnualIncome > 0
-      ? (totalAnnualInstallment / totalAnnualIncome) * 100
-      : 0;
+  // #5. RASIO CICILAN UTANG TOTAL (K / I) | Target: Maks 35%
+  const r5 = totalAnnualIncome > 0 ? (totalAnnualInstallment / totalAnnualIncome) * 100 : 0;
   let s5: any = 'RED';
-  let rec5 = 'Beban cicilan masih dalam batas wajar, namun perlu dikelola dengan disiplin.';
+  let rec5 = 'Beban cicilan melampaui standar keamanan (DBR > 35%). Risiko gagal bayar dan arus kas macet sangat tinggi.';
 
-  if (r5 < 10) {
+  if (r5 <= 15) {
     s5 = 'GREEN_DARK';
-    rec5 = 'Beban cicilan sangat ringan dan memberikan ruang besar untuk menabung dan berinvestasi.';
-  } else if (r5 <= 15) {
+    rec5 = 'Beban cicilan bulanan sangat ringan. Memberikan kebebasan untuk arus kas dan investasi.';
+  } else if (r5 <= 25) {
     s5 = 'GREEN_LIGHT';
-    rec5 = 'Beban cicilan masih sangat aman dan sehat.';
+    rec5 = 'Beban cicilan berada pada batas yang wajar dan aman secara finansial.';
   } else if (r5 <= 35) {
     s5 = 'YELLOW';
-    rec5 = 'Beban cicilan masih dalam batas wajar, namun perlu dikelola dengan disiplin.';
+    rec5 = 'Cicilan mendekati ambang batas toleransi. Hindari pengambilan kredit baru agar tidak terjebak defisit.';
   } else {
-    s5 = 'RED'; // > 35
+    s5 = 'RED';
   }
 
   ratios.push({
@@ -298,23 +257,20 @@ export const calculateFinancialHealth = (
     recommendation: rec5,
   });
 
-  // #6. RASIO CICILAN KONSUMTIF (J / I)
-  const r6 =
-    totalAnnualIncome > 0
-      ? (totalConsumptiveInstallment / totalAnnualIncome) * 100
-      : 0;
+  // #6. RASIO CICILAN KONSUMTIF (J / I) | Target: Maks 15%
+  const r6 = totalAnnualIncome > 0 ? (totalConsumptiveInstallment / totalAnnualIncome) * 100 : 0;
   let s6: any = 'RED';
-  let rec6 = 'Utang konsumtif terlalu tinggi dan berisiko mengganggu kesehatan keuangan jangka panjang.';
+  let rec6 = 'Utang konsumtif (Paylater, CC, dsb) memakan porsi terlalu besar. Segera lunasi utang berbunga tinggi.';
 
   if (r6 <= 5) {
     s6 = 'GREEN_DARK';
-    rec6 = 'Utang konsumtif sangat terkendali dan menunjukkan perilaku keuangan yang disiplin.';
+    rec6 = 'Beban utang konsumtif sangat minim. Bukti perilaku finansial yang sehat dan terkontrol.';
   } else if (r6 <= 10) {
     s6 = 'GREEN_LIGHT';
-    rec6 = 'Utang konsumtif masih dalam kondisi aman.';
+    rec6 = 'Porsi utang konsumtif wajar dan tidak mengganggu arus kas secara signifikan.';
   } else if (r6 <= 15) {
-    s6 = 'YELLOW'
-    rec6 = 'Utang konsumtif mendekati batas ideal. Perlu pengendalian agar tidak meningkat.'
+    s6 = 'YELLOW';
+    rec6 = 'Cicilan konsumtif menyentuh batas toleransi. Lakukan pengendalian belanja impulsif.';
   } else {
     s6 = 'RED';
   }
@@ -328,22 +284,22 @@ export const calculateFinancialHealth = (
     recommendation: rec6,
   });
 
-  // #7. RASIO ASET INVESTASI vs KEKAYAAN BERSIH (C / H)
+  // #7. RASIO ASET INVESTASI (C / H) | Target: Min 50%
   const r7 = netWorth > 0 ? (totalInvestment / netWorth) * 100 : 0;
   let s7: any = 'RED';
-  let rec7 = 'Sebagian besar kekayaan belum produktif. Perlu perencanaan investasi yang lebih terstruktur.';
+  let rec7 = 'Hampir seluruh aset Anda bersifat konsumtif/menganggur (< 15%). Segera susun portofolio investasi agar uang bekerja untuk Anda.';
 
   if (r7 >= 50) {
     s7 = 'GREEN_DARK';
-    rec7 = 'Struktur kekayaan sangat produktif dan mendukung tujuan keuangan jangka panjang.';
-  } else if (r7 >= 25) {
+    rec7 = 'Luar biasa! Mayoritas kekayaan Anda bekerja memproduksi hasil (Investasi). Teruskan strategi ini.';
+  } else if (r7 >= 30) {
     s7 = 'GREEN_LIGHT';
-    rec7 = 'Kondisi cukup baik, namun masih ada ruang untuk meningkatkan porsi aset produktif.';
-  } else if (r7 >= 10) {
-    s7 = 'YELLOW'; // Warning jika di bawah 50 tapi diatas 25
-    rec7 = 'Aset produktif masih relatif kecil. Disarankan mulai meningkatkan investasi secara bertahap.';
+    rec7 = 'Kondisi cukup baik dengan porsi investasi yang sedang berkembang.';
+  } else if (r7 >= 15) {
+    s7 = 'YELLOW';
+    rec7 = 'Porsi aset produktif masih minim. Alihkan fokus dari aset konsumtif ke investasi riil/finansial.';
   } else {
-    s7 = 'RED'; // < 25
+    s7 = 'RED';
   }
 
   ratios.push({
@@ -355,22 +311,22 @@ export const calculateFinancialHealth = (
     recommendation: rec7,
   });
 
-  // #8. RASIO SOLVABILITAS (H / D)
+  // #8. RASIO SOLVABILITAS (H / D) | Target: Min 50%
   const r8 = totalAssets > 0 ? (netWorth / totalAssets) * 100 : 0;
   let s8: any = 'RED';
-  let rec8 = 'Risiko keuangan tinggi. Diperlukan perencanaan keuangan yang lebih serius dan terarah.';
+  let rec8 = 'Solvabilitas kritis (< 30%). Hampir seluruh aset Anda dibiayai oleh utang. Risiko kebangkrutan mengancam.';
 
   if (r8 >= 75) {
     s8 = 'GREEN_DARK';
-    rec8 = 'Kondisi solvabilitas sangat kuat dan risiko kebangkrutan sangat rendah.';
+    rec8 = 'Fondasi solvabilitas sangat kokoh. Modal pribadi sangat mendominasi dibandingkan kewajiban utang.';
   } else if (r8 >= 50) {
     s8 = 'GREEN_LIGHT';
-    rec8 = 'Kondisi solvabilitas baik dan masih dalam batas aman.';
-  } else if (r8 >= 25) {
+    rec8 = 'Kondisi solvabilitas aman. Rasio kepemilikan aset bersih memenuhi batas sehat.';
+  } else if (r8 >= 30) {
     s8 = 'YELLOW';
-    rec8 = 'Kondisi mulai rentan. Disarankan memperkuat aset atau mengurangi utang.';
+    rec8 = 'Kondisi mulai rentan karena utang membiayai porsi yang cukup besar dari aset Anda.';
   } else {
-    s8 = 'RED'; // < 30
+    s8 = 'RED';
   }
 
   ratios.push({
@@ -382,60 +338,41 @@ export const calculateFinancialHealth = (
     recommendation: rec8,
   });
 
-  // --- 3. LOGIKA PENENTUAN STATUS AKHIR ---
-
   // =================================================================
   // 3. HITUNG SKOR KESEHATAN (WEIGHTED DISTRIBUTION LOGIC)
   // =================================================================
-
-  // A. Definisikan Bobot Nilai (0-100)
-  // Logic: Hijau mengangkat nilai, Merah menjatuhkan nilai secara signifikan
   const SCORE_WEIGHTS: Record<string, number> = {
-    GREEN_DARK: 100, // Sempurna
-    GREEN_LIGHT: 85, // Sehat
-    YELLOW: 50,      // Waspada (Setengah lulus)
-    RED: 15,         // Bahaya (Nilai sangat rendah)
+    GREEN_DARK: 100,
+    GREEN_LIGHT: 85,
+    YELLOW: 50,
+    RED: 15,
   };
 
-  // B. Hitung Total Poin dari semua Rasio
   let totalPoints = 0;
   const totalRatios = ratios.length;
-
-  // Variabel bantu untuk counting (opsional, untuk debug)
   let redCount = 0;
 
   ratios.forEach((r) => {
-    // Ambil bobot berdasarkan warna, default 0 jika error
     const points = SCORE_WEIGHTS[r.statusColor] || 0;
     totalPoints += points;
-
     if (r.statusColor === 'RED') redCount++;
   });
 
-  // C. Kalkulasi Final Score (Rata-rata)
-  // Rumus: Total Poin / Jumlah Rasio
   let score = totalRatios > 0 ? Math.round(totalPoints / totalRatios) : 0;
-
-  // D. Tentukan Status Global berdasarkan Range Nilai
   let globalStatus: 'SEHAT' | 'WASPADA' | 'BAHAYA';
 
   if (score >= 80) {
-    // Skor >= 80: SEHAT (Mayoritas Hijau)
     globalStatus = 'SEHAT';
   } else if (score >= 50) {
-    // Skor 50 - 79: WASPADA (Campuran Hijau/Kuning atau ada sedikit Merah)
     globalStatus = 'WASPADA';
   } else {
-    // Skor < 50: BAHAYA (Dominan Merah/Kuning)
     globalStatus = 'BAHAYA';
   }
 
   // --- LOGIC TAMBAHAN (SAFETY NET) ---
-  // Jika skor masuk kategori "SEHAT" (misal 81), TAPI ada lebih dari 2 indikator MERAH,
-  // kita paksa turun ke "WASPADA" agar user tidak terlena.
   if (globalStatus === 'SEHAT' && redCount >= 2) {
     globalStatus = 'WASPADA';
-    score = 79; // Cap di batas atas Waspada
+    score = 79;
   }
 
   return {
@@ -445,7 +382,6 @@ export const calculateFinancialHealth = (
     netWorth,
     surplusDeficit,
     generatedAt: new Date().toISOString(),
-    // Feedback data raw untuk Frontend (opsional)
     incomeFixed: val(data.incomeFixed),
     incomeVariable: val(data.incomeVariable),
   };
@@ -455,94 +391,50 @@ export const calculateFinancialHealth = (
 // 2. TVM (TIME VALUE OF MONEY) CORE HELPERS
 // ============================================================================
 
-/**
- * Menghitung Future Value (Nilai Masa Depan)
- * @param rate Rate per periode (bukan persen, misal 10% = 0.1)
- * @param nper Jumlah periode
- * @param pmt Pembayaran per periode (negatif jika keluar uang)
- * @param pv Nilai sekarang (negatif jika keluar uang)
- * @param type 0 = akhir periode, 1 = awal periode
- */
 export const calculateFV = (rate: number, nper: number, pmt: number, pv: number, type: 0 | 1 = 0) => {
   if (rate === 0) return -(pv + pmt * nper);
   const pow = Math.pow(1 + rate, nper);
   return -((pv * pow) + (pmt * (1 + rate * type) * (pow - 1) / rate));
 };
 
-/**
- * Menghitung PMT (Anuitas / Tabungan Rutin)
- * @param rate Rate per periode (bukan persen, misal 0.08/12)
- * @param nper Jumlah periode (bulan)
- * @param pv Nilai sekarang (modal awal)
- * @param fv Nilai masa depan yang diinginkan
- * @param type 0 = akhir periode, 1 = awal periode
- */
 export const calculatePMT = (rate: number, nper: number, pv: number, fv: number = 0, type: 0 | 1 = 0) => {
   if (rate === 0) return -(pv + fv) / nper;
   const pvif = Math.pow(1 + rate, nper);
   return -(rate * (fv + (pv * pvif))) / ((pvif - 1) * (1 + rate * type));
 };
 
-/**
- * LOGIKA: DANA PENSIUN (CUSTOM LOGIC)
- * - Future Expense: Inflated Value (Nominal)
- * - Existing Fund Growth: Fixed 5.5%
- * - Target Fund: Menggunakan PVAD dengan Nett Rate terhadap Inflated Expense
- */
 export const calculatePensionPlan = (data: CreatePensionDto) => {
-  const {
-    currentAge,
-    retirementAge,
-    lifeExpectancy = 80,
-    currentExpense,
-    currentSaving = 0,
-    inflationRate = 5,
-    returnRate = 8
-  } = data;
-
-  // --- 1. SETUP WAKTU ---
+  const { currentAge, retirementAge, lifeExpectancy = 80, currentExpense, currentSaving = 0, inflationRate = 5, returnRate = 8 } = data;
   const yearsToRetire = retirementAge - currentAge;
   const retirementDuration = lifeExpectancy - retirementAge;
 
   if (yearsToRetire <= 0) throw new Error("Usia pensiun harus lebih besar dari usia sekarang");
   if (retirementDuration <= 0) throw new Error("Usia harapan hidup harus lebih besar dari usia pensiun");
 
-  // --- 2. SETUP RATE ---
   const iRate = inflationRate / 100;
   const rRate = returnRate / 100;
   const nettRate = rRate - iRate;
 
-  // --- 3. HITUNG BIAYA HIDUP NANTI (FUTURE VALUE) ---
   const annualExpenseCurrent = currentExpense * 12;
-
-  // [UPDATED] Mengalikan biaya hidup saat ini dengan inflasi sampai usia pensiun
   const futureAnnualExpense = annualExpenseCurrent * Math.pow(1 + iRate, yearsToRetire);
 
-  // --- 4. HITUNG TOTAL DANA YANG DIBUTUHKAN (TARGET) ---
   let totalFundNeeded = 0;
   if (nettRate === 0) {
     totalFundNeeded = futureAnnualExpense * retirementDuration;
   } else {
-    // PV Annuity Due dengan Nett Rate
     const pvadFactor = (1 - Math.pow(1 + nettRate, -retirementDuration)) / nettRate;
     totalFundNeeded = futureAnnualExpense * pvadFactor * (1 + nettRate);
   }
 
-  // --- 5. HITUNG FV SALDO AWAL (ASET LAMA) ---
-  // [UPDATED] Fixed Growth Rate 5.5% untuk aset lama sesuai request
-  const fixedExistingFundRate = 0.055; // 5.5%
+  const fixedExistingFundRate = 0.055;
   const fvExistingFund = currentSaving * Math.pow(1 + fixedExistingFundRate, yearsToRetire);
-
-  // --- 6. HITUNG KEKURANGAN (SHORTFALL) ---
   const shortfall = Math.max(0, totalFundNeeded - fvExistingFund);
 
-  // --- 7. HITUNG TABUNGAN BULANAN (PMT) ---
   let annualSaving = 0;
   if (shortfall > 0) {
     if (nettRate === 0) {
       annualSaving = shortfall / yearsToRetire;
     } else {
-      // Future Value of Annuity factor (untuk menghitung berapa yg harus ditabung)
       const sinkingFundFactor = Math.pow(1 + nettRate, yearsToRetire) - 1;
       annualSaving = (shortfall * nettRate) / sinkingFundFactor;
     }
@@ -551,7 +443,7 @@ export const calculatePensionPlan = (data: CreatePensionDto) => {
   return {
     yearsToRetire,
     retirementDuration,
-    futureMonthlyExpense: futureAnnualExpense / 12, // Nilai di masa depan (sudah kena inflasi)
+    futureMonthlyExpense: futureAnnualExpense / 12,
     totalFundNeeded,
     fvExistingFund,
     shortfall,
@@ -559,120 +451,51 @@ export const calculatePensionPlan = (data: CreatePensionDto) => {
   };
 };
 
-/**
- * LOGIKA: ASURANSI JIWA (UP IDEAL) - UPDATED
- * Menggunakan "Income Replacement Method" dengan pendekatan PVAD (Present Value Annuity Due).
- * Rumus sesuai dokumen: PVAD = PMT * [ (1 - (1+r)^-n) / r ] * (1+r)
- * Dimana r = Nett Rate (Investasi - Inflasi).
- */
-/**
- * CALCULATOR: INSURANCE PLAN (Income Replacement Method)
- * Sebagai analis, kita memisahkan kebutuhan menjadi 3 pilar: 
- * 1. Income Replacement (Living Cost)
- * 2. Debt Clearance (Liability)
- * 3. Final Expense (Funeral & Emergency)
- */
 export const calculateInsurancePlan = (data: CreateInsuranceDto) => {
-  const {
-    monthlyExpense,
-    existingDebt = 0,
-    existingCoverage = 0,
-    protectionDuration = 10,
-    inflationRate = 5,
-    returnRate = 7,
-    // [NEW] Destrukturisasi langsung dari DTO yang sudah diperbaharui
-    finalExpense = 0,
-  } = data;
-
-  // 1. Hitung Bunga Riil / Nett Rate (r)
-  // Nett interest = Target investasi - Inflasi (Real Rate of Return)
+  const { monthlyExpense, existingDebt = 0, existingCoverage = 0, protectionDuration = 10, inflationRate = 5, returnRate = 7, finalExpense = 0 } = data;
   const iRate = inflationRate / 100;
   const rRate = returnRate / 100;
   const nettRate = rRate - iRate;
-
-  // 2. Hitung Income Replacement (PVAD - Present Value Annuity Due)
-  // Income tahunan yang harus digantikan untuk menjaga standar hidup keluarga
   const annualExpense = monthlyExpense * 12;
   const n = protectionDuration;
 
   let incomeReplacementValue = 0;
-
   if (nettRate === 0) {
-    // KASUS KHUSUS: Jika Investasi == Inflasi (Nett Rate 0)
-    // Hitungan linear sederhana: Pengeluaran Tahunan x Durasi
     incomeReplacementValue = annualExpense * n;
   } else {
-    /**
-     * RUMUS UTAMA (PVAD)
-     * Kita menggunakan Annuity Due karena asumsi keluarga membutuhkan 
-     * dana di AWAL tahun untuk biaya hidup.
-     * Rumus: PMT * [ (1 - (1+r)^-n) / r ] * (1+r)
-     */
     const discountFactor = (1 - Math.pow(1 + nettRate, -n)) / nettRate;
     incomeReplacementValue = annualExpense * discountFactor * (1 + nettRate);
   }
 
-  // 3. Debt Clearance (Pelunasan Hutang)
   const debtClearanceValue = existingDebt;
-
-  /**
-   * 4. Biaya Duka & Kebutuhan Akhir (Final Expense)
-   * Sekarang nilai ini diambil secara murni dari input user, 
-   * bukan lagi 'Included' secara abstrak di dalam income replacement.
-   */
   const otherNeeds = finalExpense;
-
-  /**
-   * 5. Total Kebutuhan UP (Gross)
-   * Total = Dana Hidup + Pelunasan Hutang + Biaya Akhir Hayat
-   * Sesuai prinsip 'Separation of Concerns', kita menjumlahkan 3 komponen yang berbeda.
-   */
   const totalNeeded = incomeReplacementValue + debtClearanceValue + otherNeeds;
-
-  // 6. Hitung Gap (Kekurangan Proteksi)
-  // Total Kebutuhan - Aset/Asuransi yang Sudah Dimiliki
   const coverageGap = Math.max(0, totalNeeded - existingCoverage);
 
-  // 7. Buat Rekomendasi Tekstual yang Akurat
   let recommendation = "";
   if (coverageGap <= 0) {
     recommendation = "Selamat! Nilai perlindungan asuransi Anda saat ini sudah mencukupi kebutuhan keluarga (Biaya Hidup, Hutang, & Biaya Duka).";
   } else {
-    const formattedGap = new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
-      maximumFractionDigits: 0
-    }).format(coverageGap);
-
+    const formattedGap = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(coverageGap);
     recommendation = `Keluarga Anda membutuhkan dana tambahan sebesar ${formattedGap} untuk menjaga standar hidup selama ${n} tahun, melunasi hutang, serta mencadangkan biaya akhir hayat jika terjadi risiko. Disarankan menambah UP Asuransi Jiwa Berjangka (Term Life).`;
   }
 
   return {
-    // Rincian Granular untuk disajikan ke FE & PDF
-    annualExpense,          // Pengeluaran Tahunan
-    nettRatePercentage: (nettRate * 100).toFixed(2), // Real Rate dalam %
-    incomeReplacementValue, // Pilar 1: Dana Hidup (PVAD)
-    debtClearanceValue,     // Pilar 2: Dana Hutang
-    otherNeeds,             // Pilar 3: Biaya Duka/Pemakaman
-
-    // Aggregated Results
-    totalNeeded,   // Total UP Ideal
-    coverageGap,   // Shortfall (Kekurangan)
-    recommendation // Saran Analis
+    annualExpense,
+    nettRatePercentage: (nettRate * 100).toFixed(2),
+    incomeReplacementValue,
+    debtClearanceValue,
+    otherNeeds,
+    totalNeeded,
+    coverageGap,
+    recommendation
   };
 };
 
-/**
- * LOGIKA: GOALS (TUJUAN KEUANGAN) - Create (Simpan)
- * Menghitung kebutuhan menabung bulanan untuk mencapai target dana di masa depan.
- */
 export const calculateGoalPlan = (data: CreateGoalDto) => {
   const { targetAmount, targetDate, inflationRate = 5, returnRate = 6 } = data;
-
   const now = new Date();
   const target = new Date(targetDate);
-
-  // 1. Hitung durasi bulan (nper)
   const monthsDuration = (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth());
 
   if (monthsDuration <= 0) {
@@ -680,56 +503,26 @@ export const calculateGoalPlan = (data: CreateGoalDto) => {
   }
 
   const yearsDuration = monthsDuration / 12;
-
-  // 2. Hitung Nilai Masa Depan Target (FV akibat Inflasi)
-  // Jika beli rumah 5 tahun lagi, harganya pasti naik kena inflasi
   const futureTargetAmount = targetAmount * Math.pow(1 + (inflationRate / 100), yearsDuration);
-
-  // 3. Hitung Tabungan Bulanan (PMT)
   const monthlyRate = (returnRate / 100) / 12;
 
-  // REVISI DISINI: Tambahkan Math.abs() agar output positif
-  const monthlySaving = Math.abs(calculatePMT(
-    monthlyRate,
-    monthsDuration,
-    0, // Mulai dari 0
-    futureTargetAmount
-  ));
+  const monthlySaving = Math.abs(calculatePMT(monthlyRate, monthsDuration, 0, futureTargetAmount));
 
   return {
     monthsDuration,
-    futureTargetAmount, // Nilai target setelah inflasi
+    futureTargetAmount,
     monthlySaving
   };
 };
 
-/**
- * LOGIKA: GOALS (SIMULASI)
- * Menghitung FV dan PMT berdasarkan Current Cost dan Tenor.
- * Digunakan untuk endpoint /financial/goals/simulate
- */
 export const calculateGoalSimulation = (data: SimulateGoalDto) => {
   const { currentCost, years, inflationRate = 5, returnRate = 6 } = data;
-
-  // 1. Hitung Future Value (FV)
-  // Rumus: FV = PV * (1 + i)^n
   const iRate = inflationRate / 100;
   const futureValue = currentCost * Math.pow(1 + iRate, years);
-
-  // 2. Hitung Monthly Saving (PMT)
-  // Rumus PMT Annuity
   const monthlyRate = (returnRate / 100) / 12;
   const months = years * 12;
 
-  // calculatePMT(rate, nper, pv, fv)
-  // pv = 0 (asumsi mulai dari nol)
-  // fv = target dana masa depan
-  const monthlySaving = Math.abs(calculatePMT(
-    monthlyRate,
-    months,
-    0,
-    futureValue
-  ));
+  const monthlySaving = Math.abs(calculatePMT(monthlyRate, months, 0, futureValue));
 
   return {
     futureValue,
@@ -737,81 +530,42 @@ export const calculateGoalSimulation = (data: SimulateGoalDto) => {
   };
 };
 
-/**
- * ------------------------------------------------------------------
- * UPDATE UTAMA: DANA PENDIDIKAN (GRANULAR SINKING FUND)
- * ------------------------------------------------------------------
- * Menggunakan metode "Cashflow Matching" sesuai Dokumen Referensi.
- * Setiap jenjang dihitung mandiri (Sinking Fund terpisah), lalu dijumlahkan.
- */
 export function calculateEducationPlan(dto: CreateEducationPlanDto) {
   const inflationRate = (dto.inflationRate || 10) / 100;
   const returnRate = (dto.returnRate || 12) / 100;
-
-  // Rate investasi bulanan untuk rumus PMT
   const rRateMonthly = returnRate / 12;
 
   const stagesBreakdown = dto.stages.map((stage) => {
     let futureCost = 0;
 
-    // --- CORE LOGIC UPDATE START ---
-
-    // 1. LOGIC S2 (MAGISTER) - SINGLE COST RULE
-    // User Requirement: "S2 hanya menghitung satu kali biaya kuliah dari awal masuk"
     if (stage.level === SchoolLevel.S2) {
-      // Rumus: FV = PV * (1 + inflasi)^tahun
-      // Tidak peduli apakah user input ANNUAL/ENTRY, S2 dianggap Lump Sum 1x.
       futureCost = Number(stage.currentCost) * Math.pow(1 + inflationRate, stage.yearsToStart);
-    }
-
-    // 2. LOGIC S1 (SARJANA) - 4 YEARS / 8 SEMESTERS RULE
-    // User Requirement: "S1 menghitung dari semester 1 hingga 8"
-    else if (stage.level === SchoolLevel.S1 && stage.costType === CostType.ANNUAL) {
-      // Asumsi: Input currentCost adalah "Biaya Per Tahun".
-      // Kita harus mengakumulasi biaya selama 4 tahun kuliah.
-      // Tahun ke-1: Kena inflasi selama (yearsToStart) tahun
-      // Tahun ke-2: Kena inflasi selama (yearsToStart + 1) tahun
-      // dst...
-
-      const durationS1 = 4; // 4 Tahun (8 Semester)
+    } else if (stage.level === SchoolLevel.S1 && stage.costType === CostType.ANNUAL) {
+      const durationS1 = 4;
       let totalS1Cost = 0;
-
       for (let i = 0; i < durationS1; i++) {
         const yearInflation = stage.yearsToStart + i;
         const costPerYear = Number(stage.currentCost) * Math.pow(1 + inflationRate, yearInflation);
         totalS1Cost += costPerYear;
       }
-
       futureCost = totalS1Cost;
-    }
-
-    // 3. LOGIC UMUM (TK, SD, SMP, SMA, atau Uang Pangkal S1)
-    else {
-      // Perhitungan standar Single FV
+    } else {
       futureCost = Number(stage.currentCost) * Math.pow(1 + inflationRate, stage.yearsToStart);
     }
 
-    // --- CORE LOGIC UPDATE END ---
-
-    // Hitung Tabungan Bulanan (PMT)
-    // Jika yearsToStart 0 (masuk tahun ini), PMT = 0 (karena butuh dana tunai sekarang)
-    // Sebaiknya UI menangani ini sebagai "Dana Darurat", tapi disini kita return 0 saving.
     let monthlySavingItem = 0;
     const months = stage.yearsToStart * 12;
-
     if (months > 0) {
-      // Menggunakan Math.abs agar hasil positif
       monthlySavingItem = Math.abs(calculatePMT(rRateMonthly, months, 0, futureCost));
     }
 
     return {
       ...stage,
-      futureCost,   // Nilai masa depan yang sudah disesuaikan logic S1/S2
+      futureCost,
       monthlySaving: monthlySavingItem,
     };
   });
 
-  // Agregasi Total
   const totalFutureCost = stagesBreakdown.reduce((acc, item) => acc + item.futureCost, 0);
   const totalMonthlySaving = stagesBreakdown.reduce((acc, item) => acc + item.monthlySaving, 0);
 
@@ -822,21 +576,6 @@ export function calculateEducationPlan(dto: CreateEducationPlanDto) {
   };
 }
 
-// ============================================================================
-// 4. BUDGETING ENGINE
-// ============================================================================
-
-/**
- * LOGIKA: BUDGET SPLIT (SMART BUDGETING 45/20/15/10/10)
- * Menghitung alokasi otomatis berdasarkan total pendapatan jika user tidak 
- * memasukkan rincian pengeluaran secara manual.
- * * Rasio yang digunakan:
- * - Living Cost (Kebutuhan): 45%
- * - Productive Debt (Cicilan Produktif): 20%
- * - Consumptive Debt (Cicilan Konsumtif): 15%
- * - Insurance (Premi Asuransi): 10%
- * - Saving (Tabungan/Investasi): 10%
- */
 export const calculateBudgetSplit = (totalIncome: number) => {
   return {
     livingCost: totalIncome * 0.45,
@@ -847,22 +586,9 @@ export const calculateBudgetSplit = (totalIncome: number) => {
   };
 };
 
-// ============================================================================
-// 5. RISK PROFILE ENGINE (Simulasi Profil Risiko)
-// ============================================================================
-
-/**
- * Menganalisa Profil Risiko berdasarkan jawaban kuesioner.
- * Logic:
- * 1. Hitung Total Skor (A=1, B=2, C=3)
- * 2. Klasifikasi Skor ke Kategori (Konservatif/Moderat/Agresif)
- * 3. Return Metadata & Alokasi Aset sesuai BRD
- */
 export const calculateRiskProfileAnalysis = (answers: RiskAnswerOption[]) => {
   let totalScore = 0;
 
-  // 1. Scoring Engine
-  // Menggunakan loop efisien untuk menjumlahkan bobot
   for (const answer of answers) {
     switch (answer) {
       case RiskAnswerOption.A:
@@ -875,54 +601,27 @@ export const calculateRiskProfileAnalysis = (answers: RiskAnswerOption[]) => {
         totalScore += 3;
         break;
       default:
-        // Fallback aman (Zero-trust input)
         totalScore += 0;
     }
   }
 
-  // 2. Classification Engine
   let profile: RiskProfileCategory;
   let description: string;
   let allocation: { lowRisk: number; mediumRisk: number; highRisk: number };
 
-  // Logic Threshold sesuai Dokumen BRD (Kuesioner Profil Risiko)
-  // Min Score 10, Max Score 30
   if (totalScore <= 16) {
-    // Range 10 - 16: KONSERVATIF
     profile = RiskProfileCategory.KONSERVATIF;
-    description =
-      'Anda lebih mengutamakan keamanan dana dibandingkan pertumbuhan yang tinggi. Fokus utama pada menjaga nilai uang agar tidak berkurang. Strategi: Dominan di instrumen stabil.';
-    allocation = {
-      lowRisk: 70,    // Dominan Pasar Uang / Deposito
-      mediumRisk: 30, // Obligasi / Pendapatan Tetap
-      highRisk: 0,    // Hindari Saham
-    };
+    description = 'Anda lebih mengutamakan keamanan dana dibandingkan pertumbuhan yang tinggi. Fokus utama pada menjaga nilai uang agar tidak berkurang. Strategi: Dominan di instrumen stabil.';
+    allocation = { lowRisk: 70, mediumRisk: 30, highRisk: 0 };
   } else if (totalScore <= 23) {
-    // Range 17 - 23: MODERAT
     profile = RiskProfileCategory.MODERAT;
-    description =
-      'Anda berada di posisi seimbang antara keamanan dana dan potensi pertumbuhan. Anda siap menghadapi fluktuasi nilai investasi yang wajar demi hasil yang lebih baik dari inflasi.';
-    allocation = {
-      lowRisk: 40,
-      mediumRisk: 40,
-      highRisk: 20,
-    };
+    description = 'Anda berada di posisi seimbang antara keamanan dana dan potensi pertumbuhan. Anda siap menghadapi fluktuasi nilai investasi yang wajar demi hasil yang lebih baik dari inflasi.';
+    allocation = { lowRisk: 40, mediumRisk: 40, highRisk: 20 };
   } else {
-    // Range 24 - 30: AGRESIF
     profile = RiskProfileCategory.AGRESIF;
-    description =
-      'Anda siap menghadapi fluktuasi nilai investasi yang tinggi demi potensi hasil jangka panjang yang maksimal. Penurunan jangka pendek dianggap wajar dalam mengejar growth.';
-    allocation = {
-      lowRisk: 20,
-      mediumRisk: 30,
-      highRisk: 50, // Dominan Saham
-    };
+    description = 'Anda siap menghadapi fluktuasi nilai investasi yang tinggi demi potensi hasil jangka panjang yang maksimal. Penurunan jangka pendek dianggap wajar dalam mengejar growth.';
+    allocation = { lowRisk: 20, mediumRisk: 30, highRisk: 50 };
   }
 
-  return {
-    totalScore,
-    profile,
-    description,
-    allocation,
-  };
+  return { totalScore, profile, description, allocation };
 };
