@@ -201,15 +201,6 @@ export const calculateFinancialHealth = (
     recommendation: rec3,
   });
 
-  ratios.push({
-    id: 'saving_ratio',
-    label: 'Rasio Tabungan',
-    value: parseFloat(r3.toFixed(1)),
-    benchmark: 'Min 10%',
-    statusColor: s3,
-    recommendation: rec3,
-  });
-
   // #4. RASIO UTANG vs ASET (G / D) | Target: Maks 50%
   const r4 = totalAssets > 0 ? (totalDebt / totalAssets) * 100 : 0;
   let s4: any = 'RED';
