@@ -1,5 +1,6 @@
-import { IsOptional, IsString, IsNumber, IsDateString, MinLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
+import { IsNumber, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
 
 export class EditUserDto {
   @ApiPropertyOptional()
@@ -26,7 +27,6 @@ export class EditUserDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  // @IsDateString() // Opsional: Bisa diaktifkan jika format strict ISO
   dateOfBirth?: string; // [FIX] Tanggal Lahir (String dari input type="date")
 
   // =================================================================
@@ -62,4 +62,29 @@ export class EditUserDto {
   @IsOptional()
   @IsString()
   goals?: string;
+
+  // =================================================================
+  // [NEW] PATCH UPDATE STRUKTURAL & KONTAK
+  // =================================================================
+
+  @ApiPropertyOptional({ description: 'Nomor WhatsApp' })
+  @IsOptional()
+  @IsString()
+  noWa?: string; // [FIX] Menambal kebocoran data (Data Loss) dari FE
+
+  @ApiPropertyOptional({ description: 'Nomor Pokok Pegawai' })
+  @IsOptional()
+  @IsString()
+  nip?: string;
+
+  @ApiPropertyOptional({ description: 'Posisi/Jabatan (String deskriptif)' })
+  @IsOptional()
+  @IsString()
+  position?: string;
+
+  @ApiPropertyOptional({ description: 'ID Referensi Unit Kerja' })
+  @IsOptional()
+  @IsUUID()
+  @Transform(({ value }) => (value === '' ? undefined : value)) // [PROTECTED VARIATIONS] Mencegah Prisma Error P2003
+  unitKerjaId?: string;
 }

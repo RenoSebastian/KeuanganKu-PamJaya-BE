@@ -162,6 +162,8 @@ export class UsersService {
       const { password, dateOfBirth, dependentCount, ...restData } = dto;
       const updatePayload: any = {};
 
+      // Iterasi dinamis ini akan secara otomatis memproses NIP, Position, 
+      // UnitKerjaId, dan NoWa dari DTO baru yang telah kita siapkan.
       for (const [key, value] of Object.entries(restData)) {
         if (value !== undefined && value !== '') {
           updatePayload[key] = value;
@@ -215,6 +217,10 @@ export class UsersService {
         gender: user.gender,
         companyName: user.companyName,
         goals: user.goals,
+
+        // [NEW FASE 1] Memastikan pembaruan struktural terekam ke mesin pencari
+        nip: user.nip,
+        position: user.position,
       };
 
       this.searchService
