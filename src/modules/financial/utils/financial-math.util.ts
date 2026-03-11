@@ -151,20 +151,21 @@ export const calculateFinancialHealth = (
 
   // #2. RASIO LIKUIDITAS vs NET WORTH (A / H) | Target: Min 15%
   const r2 = netWorth > 0 ? (totalLiquid / netWorth) * 100 : 0;
-  let s2: any = 'RED';
-  let rec2 = 'Likuiditas Anda di bawah standar aman (< 10%). Risiko tinggi bila butuh uang tunai mendadak. Tingkatkan aset likuid Anda.';
+  let s2: any;
+  let rec2: string;
 
-  if (r2 >= 25) {
+  if (r2 >= 15) {
     s2 = 'GREEN_DARK';
     rec2 = 'Likuiditas sangat prima. Aset tunai Anda mendominasi dan sangat siap digunakan kapan saja.';
-  } else if (r2 >= 15) {
+  } else if (r2 >= 10) {
     s2 = 'GREEN_LIGHT';
     rec2 = 'Likuiditas seimbang. Memenuhi standar aman tanpa banyak dana menganggur.';
-  } else if (r2 >= 10) {
+  } else if (r2 > 7) {
     s2 = 'YELLOW';
-    rec2 = 'Likuiditas mendekati batas minimum. Berhati-hati bila ada pengeluaran besar mendadak.';
+    rec2 = 'Likuiditas Anda di bawah standar aman 15%. Risiko cukup tinggi bila butuh uang tunai mendadak. Segera tingkatkan porsi aset likuid Anda.';
   } else {
     s2 = 'RED';
+    rec2 = 'Likuiditas sangat kritis (0%). Anda tidak memiliki aset tunai yang tersedia untuk menyangga keadaan darurat.';
   }
 
   ratios.push({
@@ -176,23 +177,29 @@ export const calculateFinancialHealth = (
     recommendation: rec2,
   });
 
-  // #3. RASIO TABUNGAN (M / I) | Target: Min 10% (Fixed Bug)
+  // #3. RASIO TABUNGAN (M / I) | Target: Min 10%
   const r3 = totalAnnualIncome > 0 ? (totalAnnualSaving / totalAnnualIncome) * 100 : 0;
   let s3: any = 'RED';
-  let rec3 = 'Rasio menabung Anda kritis (< 5%). Tekan pengeluaran gaya hidup agar dapat menyisihkan dana masa depan.';
+  let rec3 = 'Anda sama sekali tidak menyisihkan tabungan (0%). Segera tekan pengeluaran gaya hidup Anda.';
 
-  if (r3 >= 20) {
-    s3 = 'GREEN_DARK';
-    rec3 = 'Disiplin menabung Anda sangat luar biasa. Ruang untuk mencapai kemandirian finansial sangat terbuka lebar.';
-  } else if (r3 >= 10) {
-    s3 = 'GREEN_LIGHT';
-    rec3 = 'Rasio tabungan sudah berada di jalur yang benar dan memenuhi standar minimum.';
-  } else if (r3 >= 5) {
-    s3 = 'YELLOW';
-    rec3 = 'Porsi menabung belum memenuhi target minimum 10%. Periksa kembali alokasi pengeluaran Anda.';
+  if (r3 >= 10) {
+    s3 = 'GREEN_DARK'; // Target tercapai (10% ke atas)
+    rec3 = 'Rasio tabungan sangat baik dan sudah memenuhi standar minimum (10%). Pertahankan disiplin ini.';
+  } else if (r3 > 5) {
+    s3 = 'YELLOW'; // Di bawah 10% tapi masih ada tabungan (0.1% - 9.9%)
+    rec3 = 'Anda sudah mulai menabung, namun porsinya belum memenuhi target ideal 10%. Terus tingkatkan secara bertahap.';
   } else {
-    s3 = 'RED';
+    s3 = 'RED'; // Semakin jauh / 0 / minus (Tidak menabung sama sekali)
   }
+
+  ratios.push({
+    id: 'saving_ratio',
+    label: 'Rasio Tabungan',
+    value: parseFloat(r3.toFixed(1)),
+    benchmark: 'Min 10%',
+    statusColor: s3,
+    recommendation: rec3,
+  });
 
   ratios.push({
     id: 'saving_ratio',
